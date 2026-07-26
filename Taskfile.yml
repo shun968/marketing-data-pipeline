@@ -105,3 +105,9 @@ tasks:
       新しいプロジェクトディレクトリが増えても、package.jsonにlintスクリプトさえあれば自動的に対象になる。
     cmds:
       - ./scripts/lint-projects.sh
+
+  sns-collector:setup:
+    desc: sns-collectorのPython依存関係をインストールする
+    dir: sns-collector
+    cmds:
+      - uv sync

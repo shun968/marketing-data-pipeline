@@ -1,0 +1,14 @@
+bluesky:
+  sort: latest # latest | top
+  limit_per_keyword: 50 # 1リクエストあたり取得件数(最大100)
+  keywords:
+    - "新規事業"
+    - "スタートアップ アイデア"
+
+youtube:
+  order: relevance # relevance | date | rating | viewCount
+  max_results_per_keyword: 25 # 1回あたり取得件数(最大50)
+  region_code: JP
+  relevance_language: ja
+  keywords:
+    - "新規事業 アイデア"
