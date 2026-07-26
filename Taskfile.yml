@@ -1,0 +1,107 @@
+version: '3'
+
+vars:
+  REPO:
+    sh: gh repo view --json nameWithOwner -q .nameWithOwner
+
+tasks:
+  setup:
+    desc: 初期セットアップ(依存関係インストール・gitフック登録)
+    cmds:
+      - npm install
+
+  setup-github-repo-rules:
+    desc: GitHubリポジトリ設定を標準ルールに揃える
+    summary: |
+      前提: gh CLIでログイン済み、対象リポジトリへのadmin権限があること
+
+      適用内容:
+        1. デフォルトブランチを main に統一
+        2. develop ブランチが残っていれば削除
+        3. "main" を含む名称のブランチを保護する Ruleset を作成/更新
+           - PRレビュー1件以上必須
+           - 会話(スレッド)解決必須
+           - force-push禁止
+           - ブランチ削除禁止
+           - 直線的な履歴を必須化(マージコミット禁止・ff-onlyのみ許可)
+
+      使い方: task setup-github-repo-rules [REPO=owner/repo]
+        REPO省略時はカレントディレクトリのリポジトリを対象にする
+    cmds:
+      - |
+        set -euo pipefail
+        REPO={{.REPO}}
+
+        if ! gh api "repos/${REPO}/branches" --paginate -q '.[].name' | grep -qx 'main'; then
+          current_default=$(gh api "repos/${REPO}" -q .default_branch)
+          sha=$(gh api "repos/${REPO}/git/refs/heads/${current_default}" -q .object.sha)
+          gh api -X POST "repos/${REPO}/git/refs" -f ref="refs/heads/main" -f sha="${sha}" >/dev/null
+          echo "main ブランチを作成完了(${current_default}から分岐)"
+        fi
+
+        gh api -X PATCH "repos/${REPO}" -f default_branch=main >/dev/null
+        echo "デフォルトブランチをmainに変更完了"
+
+        gh api -X PATCH "repos/${REPO}" -F allow_merge_commit=false >/dev/null
+        echo "マージコミットの作成を無効化完了(Squash/Rebaseのみ許可)"
+
+        if gh api "repos/${REPO}/branches" --paginate -q '.[].name' | grep -qx 'develop'; then
+          gh api -X DELETE "repos/${REPO}/git/refs/heads/develop"
+        fi
+        echo "develop ブランチを削除完了"
+
+        branch_ruleset_id=$(gh api "repos/${REPO}/rulesets" -q ".[] | select(.name==\"protect-main-branches\") | .id")
+
+        # bypass_actors.actor_id: 1=Read,2=Triage,3=Write,4=Maintain,5=Admin
+        branch_payload=$(cat <<JSON
+        {
+          "name": "protect-main-branches",
+          "target": "branch",
+          "enforcement": "active",
+          "bypass_actors": [
+            {
+              "actor_id": 5,
+              "actor_type": "RepositoryRole",
+              "bypass_mode": "pull_request"
+            }
+          ],
+          "conditions": {
+            "ref_name": {
+              "include": ["refs/heads/*main*"],
+              "exclude": []
+            }
+          },
+          "rules": [
+            { "type": "deletion" },
+            { "type": "non_fast_forward" },
+            { "type": "required_linear_history" },
+            {
+              "type": "pull_request",
+              "parameters": {
+                "required_approving_review_count": 1,
+                "dismiss_stale_reviews_on_push": true,
+                "require_code_owner_review": true,
+                "require_last_push_approval": true,
+                "required_review_thread_resolution": true
+              }
+            }
+          ]
+        }
+        JSON
+        )
+
+        if [ -n "${branch_ruleset_id}" ]; then
+          echo "${branch_payload}" | gh api -X PUT "repos/${REPO}/rulesets/${branch_ruleset_id}" --input - >/dev/null
+        else
+          echo "${branch_payload}" | gh api -X POST "repos/${REPO}/rulesets" --input - >/dev/null
+        fi
+
+        echo "デフォルトのgithub setting完了"
+
+  lint:
+    desc: 各プロジェクト(package.jsonにlintスクリプトを持つ直下のディレクトリ)でlintを実行する
+    summary: |
+      tutorial/ など、package.jsonに"lint"スクリプトを持つ直下のディレクトリを自動検出してnpm run lintを実行する。
+      新しいプロジェクトディレクトリが増えても、package.jsonにlintスクリプトさえあれば自動的に対象になる。
+    cmds:
+      - ./scripts/lint-projects.sh
