@@ -1,0 +1,15 @@
+pre-commit:
+  jobs:
+    - name: lint
+      run: ./scripts/lint-projects.sh --staged-only
+
+prepare-commit-msg:
+  jobs:
+    - name: suggest-commit-msg
+      run: ./scripts/suggest-commit-msg.sh {1}
+
+commit-msg:
+  parallel: true
+  jobs:
+    - name: commitlint
+      run: npx --no -- commitlint --edit {1}
