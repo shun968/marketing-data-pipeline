@@ -227,7 +227,8 @@ pnpm-debug.log*
 .yarn/
 .pnp.*
 
-# sns-collector: ローカル収集データ・状態ファイル(非公開)
+# sns-collector: ローカル収集データ・状態ファイル・生成レポート(非公開)
 sns-collector/data/
 sns-collector/state/
+sns-collector/reports/
 

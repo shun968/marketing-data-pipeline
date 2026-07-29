@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
+import requests
+
 from ..common.config import YouTubeConfig
 from ..common.seen_store import SeenStore
 from ..common.storage import append_jsonl
@@ -17,16 +19,25 @@ def run(config: YouTubeConfig, data_dir: Path, state_path: Path) -> None:
     seen_store = SeenStore(state_path, today=today)
     run_seen: set[str] = set()
     new_videos: list[YouTubeVideo] = []
+    failed_keywords: list[str] = []
 
     for keyword in config.keywords:
-        items = search_videos(
-            config.api_key,
-            keyword,
-            config.order,
-            config.max_results_per_keyword,
-            config.region_code,
-            config.relevance_language,
-        )
+        # 1キーワードの失敗で run 全体を落とさない。
+        # ここで落とすと消費済みクォータが無駄になり、収集済み分も破棄されるため。
+        try:
+            items = search_videos(
+                config.api_key,
+                keyword,
+                config.order,
+                config.max_results_per_keyword,
+                config.region_code,
+                config.relevance_language,
+            )
+        except requests.RequestException as e:
+            print(f"[youtube:{keyword}] 取得失敗のためスキップ: {e}")
+            failed_keywords.append(keyword)
+            continue
+
         new_count = 0
         skip_count = 0
         for item in items:
@@ -46,3 +57,8 @@ def run(config: YouTubeConfig, data_dir: Path, state_path: Path) -> None:
     output_path = append_jsonl([v.to_dict() for v in new_videos], data_dir, today)
     seen_store.save()
     print(f"合計 {len(new_videos)} 件を {output_path} に保存しました。")
+    if failed_keywords:
+        print(
+            f"取得に失敗したキーワード {len(failed_keywords)}/{len(config.keywords)} 件: "
+            f"{', '.join(failed_keywords)}"
+        )
