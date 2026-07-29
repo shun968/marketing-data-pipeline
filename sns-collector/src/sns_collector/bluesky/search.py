@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
+import requests
+
 from ..common.config import BlueskyConfig
 from ..common.seen_store import SeenStore
 from ..common.storage import append_jsonl
@@ -17,9 +19,18 @@ def run(config: BlueskyConfig, data_dir: Path, state_path: Path) -> None:
     seen_store = SeenStore(state_path, today=today)
     run_seen: set[str] = set()
     new_posts: list[BlueskyPost] = []
+    failed_keywords: list[str] = []
 
     for keyword in config.keywords:
-        raw_posts = search_posts(keyword, config.sort, config.limit_per_keyword)
+        # 1キーワードの失敗で run 全体を落とさない。収集済み分を確実に保存するため。
+        # 取りこぼしたキーワードは次回の定期実行でカバーされる。
+        try:
+            raw_posts = search_posts(keyword, config.sort, config.limit_per_keyword)
+        except requests.RequestException as e:
+            print(f"[bluesky:{keyword}] 取得失敗のためスキップ: {e}")
+            failed_keywords.append(keyword)
+            continue
+
         new_count = 0
         skip_count = 0
         for raw_post in raw_posts:
@@ -39,3 +50,8 @@ def run(config: BlueskyConfig, data_dir: Path, state_path: Path) -> None:
     output_path = append_jsonl([p.to_dict() for p in new_posts], data_dir, today)
     seen_store.save()
     print(f"合計 {len(new_posts)} 件を {output_path} に保存しました。")
+    if failed_keywords:
+        print(
+            f"取得に失敗したキーワード {len(failed_keywords)}/{len(config.keywords)} 件: "
+            f"{', '.join(failed_keywords)}"
+        )

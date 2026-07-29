@@ -2,10 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
-import requests
+from ..common.http import get_json
 
 SEARCH_URL = "https://www.googleapis.com/youtube/v3/search"
-TIMEOUT_SECONDS = 15
 
 
 def search_videos(
@@ -16,7 +15,7 @@ def search_videos(
     region_code: str,
     relevance_language: str,
 ) -> list[dict[str, Any]]:
-    response = requests.get(
+    payload = get_json(
         SEARCH_URL,
         params={
             "key": api_key,
@@ -28,7 +27,6 @@ def search_videos(
             "regionCode": region_code,
             "relevanceLanguage": relevance_language,
         },
-        timeout=TIMEOUT_SECONDS,
+        label=f"youtube:{query}",
     )
-    response.raise_for_status()
-    return response.json().get("items", [])
+    return payload.get("items", [])
