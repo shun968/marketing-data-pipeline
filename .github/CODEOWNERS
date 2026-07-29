@@ -1,0 +1,13 @@
+# コードオーナー定義
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+#
+# protect-main-branches ruleset が require_code_owner_review を有効にしているため、
+# ここで定義したオーナーのレビューが main へのマージに必須となる。
+#
+# 【重要】GitHubは自分自身のPRを自分で承認できない。
+#   個人開発でオーナーが1人の場合、このファイルの有無にかかわらず
+#   通常のレビューフローではマージできず、admin bypass が必要になる。
+#   このファイルは「誰が責任を持つか」の明示と、将来の共同開発への備えである。
+#   レビュー承認の空席を埋める仕組みは別途検討する。
+
+* @shun968
