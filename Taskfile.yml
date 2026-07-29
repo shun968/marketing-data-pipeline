@@ -19,11 +19,24 @@ tasks:
         1. デフォルトブランチを main に統一
         2. develop ブランチが残っていれば削除
         3. "main" を含む名称のブランチを保護する Ruleset を作成/更新
-           - PRレビュー1件以上必須
-           - 会話(スレッド)解決必須
+           - PR必須(直接pushの禁止)
+           - 会話(スレッド)解決必須 ← レビュー指摘の対応漏れを防ぐ実質的なゲート
            - force-push禁止
            - ブランチ削除禁止
            - 直線的な履歴を必須化(マージコミット禁止・ff-onlyのみ許可)
+
+      承認要件について:
+        required_approving_review_count / require_code_owner_review /
+        require_last_push_approval はいずれも 0 / false としている。
+        GitHubは自分自身のPRを自分で承認できないため、開発者が1人の間は
+        これらを有効にすると構造的に満たせず、admin bypass の常用を強いられる。
+
+        代わりに required_review_thread_resolution を残し、
+        レビュー(/code-review --comment によるAIレビューを含む)の指摘を
+        解決しない限りマージできない状態を維持する。
+
+        共同開発者が増えたら承認要件を戻すこと。
+        その時点で .github/CODEOWNERS が機能する。
 
       使い方: task setup-github-repo-rules [REPO=owner/repo]
         REPO省略時はカレントディレクトリのリポジトリを対象にする
@@ -78,10 +91,10 @@ tasks:
             {
               "type": "pull_request",
               "parameters": {
-                "required_approving_review_count": 1,
+                "required_approving_review_count": 0,
                 "dismiss_stale_reviews_on_push": true,
-                "require_code_owner_review": true,
-                "require_last_push_approval": true,
+                "require_code_owner_review": false,
+                "require_last_push_approval": false,
                 "required_review_thread_resolution": true
               }
             }
