@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 import requests
 
 from sns_collector.bluesky import search as bluesky_search
@@ -74,3 +75,66 @@ def test_failed_keyword_does_not_discard_other_results(tmp_path: Path):
     lines = output_files[0].read_text(encoding="utf-8").splitlines()
     assert len(lines) == 1, "失敗したキーワードより前の収集結果が保存されていない"
     assert state_path.exists(), "SeenStoreが保存されていない"
+
+
+def test_unexpected_exception_does_not_discard_saved_results(tmp_path: Path):
+    """想定外の例外がrunを貫通しても、それ以前の収集結果は保存済みでなければならない。
+
+    保存をrun末尾の一括のみにすると、ここで全件を失う(#8で実際に201件を失った)。
+    RequestException以外の例外でも成立することを担保する。
+    """
+    config = BlueskyConfig(sort="latest", limit_per_keyword=50, keywords=["成功する語", "壊れる語"])
+    data_dir = tmp_path / "data"
+    state_path = tmp_path / "state" / "bluesky_seen.json"
+
+    def fake_search(keyword: str, *_args):
+        if keyword == "壊れる語":
+            raise RuntimeError("想定外の例外")
+        return [FAKE_POST]
+
+    with (
+        patch("sns_collector.bluesky.search.search_posts", side_effect=fake_search),
+        pytest.raises(RuntimeError),
+    ):
+        bluesky_search.run(config, data_dir=data_dir, state_path=state_path)
+
+    output_files = list(data_dir.glob("*.jsonl"))
+    assert len(output_files) == 1, "例外の前に収集した分がディスクに書かれていない"
+    assert len(output_files[0].read_text(encoding="utf-8").splitlines()) == 1
+
+
+def test_malformed_post_is_skipped_without_losing_others(tmp_path: Path):
+    """必須フィールドを欠く投稿があっても、その1件だけを捨てて処理を続ける。
+
+    BlueskyPost.from_post は post["uri"] を subscript で読むためKeyErrorが起きうる。
+    これがrunを貫通すると、同一キーワード内の他の投稿まで失われる。
+    """
+    config = BlueskyConfig(sort="latest", limit_per_keyword=50, keywords=["キーワード"])
+    data_dir = tmp_path / "data"
+    state_path = tmp_path / "state" / "bluesky_seen.json"
+
+    broken_post = {k: v for k, v in FAKE_POST.items() if k != "uri"}
+    other_post = {**FAKE_POST, "uri": "at://did:plc:abc123/app.bsky.feed.post/other"}
+
+    with patch(
+        "sns_collector.bluesky.search.search_posts",
+        return_value=[broken_post, FAKE_POST, other_post],
+    ):
+        bluesky_search.run(config, data_dir=data_dir, state_path=state_path)
+
+    output_files = list(data_dir.glob("*.jsonl"))
+    assert len(output_files) == 1
+    lines = output_files[0].read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 2, "不正な投稿以外の2件が保存されていない"
+
+
+def test_no_new_posts_does_not_create_empty_file(tmp_path: Path):
+    """新規がゼロのとき、空のJSONLを作らない。"""
+    config = BlueskyConfig(sort="latest", limit_per_keyword=50, keywords=["キーワード"])
+    data_dir = tmp_path / "data"
+    state_path = tmp_path / "state" / "bluesky_seen.json"
+
+    with patch("sns_collector.bluesky.search.search_posts", return_value=[]):
+        bluesky_search.run(config, data_dir=data_dir, state_path=state_path)
+
+    assert list(data_dir.glob("*.jsonl")) == []
