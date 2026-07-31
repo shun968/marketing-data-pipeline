@@ -26,16 +26,18 @@ sns-collector/.env      APIキー                  ← 絶対にコミットし�
 ## リポジトリ構成
 
 ```
-docs/                   設計ドキュメント（requirements / design / roadmap / adr）
-sns-collector/          収集ツール（Python 3.11+ / uv）
-  config/               keywords.yaml（検索語） domains.yaml（観測ドメインと仮説）
+docs/                     設計ドキュメント（requirements / design / roadmap / adr）
+scripts/                  リポジトリ共通スクリプト（lint / コミットメッセージ補助）
+sns-collector/            収集ツール（Python 3.11+ / uv）
+  config/                 keywords.yaml（検索語） domains.yaml（観測ドメインと仮説）
+  scripts/cron_run.sh     定期収集のcronラッパー（flockによる多重起動防止）
   src/sns_collector/
-    common/http.py      全HTTPリクエストの仲介。ペーシングと再試行
-    common/config.py    設定ロード
+    common/http.py        全HTTPリクエストの仲介。ペーシングと再試行
+    common/config.py      設定ロード
     common/seen_store.py  重複排除（Phase 1でDBへ統合予定）
-    bluesky/ youtube/   プラットフォーム別のclient/search/models
-  tests/                単体テストのみ。実API通信は行わない
-Taskfile.yml            開発タスク（lint / GitHub設定）
+    bluesky/ youtube/     プラットフォーム別のclient/search/models
+  tests/                  単体テストのみ。実API通信は行わない
+Taskfile.yml              開発タスク（lint / GitHub設定）
 ```
 
 ## 開発コマンド
@@ -50,7 +52,8 @@ uv run sns-collector bluesky   # 収集（手動実行）
 uv run sns-collector youtube
 ```
 
-cronで3時間おきに自動収集される（`scripts/cron_run.sh`）。
+cronで3時間おきに自動収集される（`sns-collector/scripts/cron_run.sh`）。
+リポジトリ直下の `scripts/` は別物で、lintとコミットメッセージ補助が入っている。
 
 ## 規約
 
@@ -84,9 +87,15 @@ feat(sns-collector): redefine keyword strategy for demand signals (#3)
 
 ### 収集の途中失敗で全件を失った
 
-保存が全キーワード完了後の一括のみだったため、11キーワード目の403で先行201件が破棄された。現在はキーワード単位で例外を捕捉して続行する。
+保存が全キーワード完了後の一括のみだったため、11キーワード目の403で先行201件が破棄された。
 
-**ループで収集して最後にまとめて保存する形を新たに書かない。** 途中失敗で何が失われるかを必ず確認する。
+現在は3層で防いでいる。
+
+1. **キーワード単位で保存する。** JSONLを先に書き、成功してからSeenStoreへ記録する。逆順にすると、書き込み前に落ちた投稿を二度と収集できなくなる
+2. **HTTP失敗をキーワード単位で隔離する。** `requests.RequestException` を捕捉してスキップし、次のキーワードへ進む
+3. **パース失敗を投稿単位で隔離する。** `from_post` / `from_item` は `post["uri"]` / `item["id"]` を subscript で読むため `KeyError` が起きうる。1件の不正データで同一キーワードの他の投稿まで失わない
+
+**バッファに溜めて最後にまとめて書く形を書かない。既存コードにこの形を見つけたら直す。** 新規コードだけの制約ではない。実装前に「処理の途中でプロセスが落ちたら何が失われるか」を必ず確認する。
 
 ### キーワード設計の2原則
 
@@ -97,9 +106,15 @@ feat(sns-collector): redefine keyword strategy for demand signals (#3)
 
 同名衝突がある語には限定語を添える（`パラレルリンク` → 遊戯王のカード）。キーワードを変更したら実データをサンプリングして質を確認し、改訂履歴に根拠を残す。
 
-## レビュー観点
+## レビュー
 
-`/code-review --comment` でPRをレビューする際、この4点を優先する。
+**PRを出したら必ず `/code-review <PR番号> --comment` を実行する。**
+
+rulesetの `required_review_thread_resolution` は「未解決コメントがあるPR」しか止められない。レビューを走らせなければコメントはゼロで素通りするため、**実行そのものは運用で担保するしかない**。マージ前に必ず実行すること。
+
+### 観点
+
+レビューではこの4点を優先する。
 
 ### 1. データ整合性
 

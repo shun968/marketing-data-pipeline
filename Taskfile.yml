@@ -20,7 +20,7 @@ tasks:
         2. develop ブランチが残っていれば削除
         3. "main" を含む名称のブランチを保護する Ruleset を作成/更新
            - PR必須(直接pushの禁止)
-           - 会話(スレッド)解決必須 ← レビュー指摘の対応漏れを防ぐ実質的なゲート
+           - 会話(スレッド)解決必須
            - force-push禁止
            - ブランチ削除禁止
            - 直線的な履歴を必須化(マージコミット禁止・ff-onlyのみ許可)
@@ -32,11 +32,24 @@ tasks:
         これらを有効にすると構造的に満たせず、admin bypass の常用を強いられる。
 
         代わりに required_review_thread_resolution を残し、
-        レビュー(/code-review --comment によるAIレビューを含む)の指摘を
-        解決しない限りマージできない状態を維持する。
+        レビュー指摘を解決しない限りマージできない状態を維持する。
 
         共同開発者が増えたら承認要件を戻すこと。
         その時点で .github/CODEOWNERS が機能する。
+
+      bypass_actors を空にしている理由:
+        以前は Admin ロールに bypass_mode: "pull_request" を与えていたが、
+        これは PR 経由のマージ時に pull_request ルール自体を迂回できる。
+        スレッド解決も迂回対象に含まれるため、唯一のメンテナが Admin である
+        以上、未解決のレビュー指摘を残したままマージできてしまっていた。
+        承認要件を 0 にした今、bypass する理由がないため空にする。
+
+      スレッド解決の限界(把握した上で運用すること):
+        このルールは「未解決のコメントがある PR」しか止められない。
+        レビューを一度も走らせなければコメントはゼロで、素通りする。
+        また作成者自身がスレッドを解決できる。
+        強制力のあるゲートではなく、対応漏れを防ぐ仕組みである。
+        レビューの実行そのものは運用で担保する(CLAUDE.md 参照)。
 
       使い方: task setup-github-repo-rules [REPO=owner/repo]
         REPO省略時はカレントディレクトリのリポジトリを対象にする
@@ -71,13 +84,7 @@ tasks:
           "name": "protect-main-branches",
           "target": "branch",
           "enforcement": "active",
-          "bypass_actors": [
-            {
-              "actor_id": 5,
-              "actor_type": "RepositoryRole",
-              "bypass_mode": "pull_request"
-            }
-          ],
+          "bypass_actors": [],
           "conditions": {
             "ref_name": {
               "include": ["refs/heads/*main*"],
