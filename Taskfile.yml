@@ -41,10 +41,19 @@ tasks:
 
       ブランチ自動削除について:
         gh pr merge --delete-branch を毎回付けても、GitHubのUIから
-        マージした場合には効かない。リポジトリ設定にすることで
-        マージ経路によらず削除される。
+        マージした場合には効かない。リポジトリ設定にすればマージ経路に
+        依存しなくなる。
         削除後もPRページの Restore branch から復元でき、
         変更内容は squash 後のコミットとして main に残る。
+
+        ただし下記 Ruleset の deletion ルールが優先されるため、
+        条件 refs/heads/*main* にマッチするブランチは削除されない。
+        パターンの * は / にマッチしないので、対象は
+        スラッシュを含まないブランチ名に限られる。
+          domain-model, mymain  -> 削除されない(ルール適用)
+          feat/domain-model     -> 削除される(ルール非適用)
+        feat/ fix/ chore/ のプレフィクス規約に従う限り問題にならないが、
+        トップレベルに main を含む名前のブランチを切らないこと。
 
       承認要件について:
         required_approving_review_count / require_code_owner_review /
@@ -97,8 +106,10 @@ tasks:
 
         if gh api "repos/${REPO}/branches" --paginate -q '.[].name' | grep -qx 'develop'; then
           gh api -X DELETE "repos/${REPO}/git/refs/heads/develop"
+          echo "develop ブランチを削除完了"
+        else
+          echo "develop ブランチは存在しないためスキップ"
         fi
-        echo "develop ブランチを削除完了"
 
         branch_ruleset_id=$(gh api "repos/${REPO}/rulesets" -q ".[] | select(.name==\"protect-main-branches\") | .id")
 
