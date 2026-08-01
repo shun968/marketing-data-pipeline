@@ -31,6 +31,10 @@ setup() {
   printf 'jobs:\n  guards:\n    steps:\n      - run: ./scripts/tests/run-all.sh\n' \
     > .github/workflows/ci.yml
   printf 'tasks:\n  test:\n    cmds:\n      - ./scripts/tests/run-all.sh\n' > Taskfile.yml
+
+  # 検査は作業ツリーではなくindexを参照する。
+  # 基準状態をindexへ入れておかないと、どのケースも対象0件で素通りする
+  git add -A
 }
 
 teardown() {
@@ -61,23 +65,43 @@ teardown
 
 setup
 echo '#!/usr/bin/env bash' > scripts/check-something.sh
+git add scripts/check-something.sh
 assert_exit 1 "検知: check-*.sh にテストが無い"
+teardown
+
+# 作業ツリーを見ると、未追跡の一時スクリプトがあるだけで
+# 無関係なコミットまで止まる
+setup
+echo '#!/usr/bin/env bash' > scripts/check-scratch.sh
+assert_exit 0 "誤検知しない: 未追跡の一時スクリプト"
+teardown
+
+# 逆にテスト側を作業ツリーで見ると、テストを add し忘れたまま
+# 検査スクリプトだけをコミットできてしまう
+setup
+echo '#!/usr/bin/env bash' > scripts/check-something.sh
+echo '#!/usr/bin/env bash' > scripts/tests/check-something.test.sh
+git add scripts/check-something.sh
+assert_exit 1 "検知: テストが未追跡のまま検査スクリプトだけstaged"
 teardown
 
 setup
 echo '#!/usr/bin/env bash' > scripts/lint-something.sh
+git add scripts/lint-something.sh
 assert_exit 1 "検知: lint-*.sh にテストが無い"
 teardown
 
 setup
 echo '#!/usr/bin/env bash' > scripts/check-something.sh
 echo '#!/usr/bin/env bash' > scripts/tests/check-something.test.sh
+git add -A
 assert_exit 0 "誤検知しない: テストが在る"
 teardown
 
 # 検査スクリプト以外にテストを要求しない
 setup
 echo '#!/usr/bin/env bash' > scripts/suggest-commit-msg.sh
+git add -A
 assert_exit 0 "誤検知しない: 検査スクリプト以外"
 teardown
 

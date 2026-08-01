@@ -32,11 +32,38 @@ report() {
 #    対象は scripts/check-*.sh と scripts/lint-*.sh。
 #    これらは「壊れても通常の開発では気づけない」種類のコードであり、
 #    静かに0件を返すようになってもCIは緑のままになる。
-shopt -s nullglob
-for script in scripts/check-*.sh scripts/lint-*.sh; do
+#
+#    列挙を作業ツリーではなくindexから行う理由:
+#      作業ツリーを見ると、未追跡の一時スクリプト(scripts/check-tmp.sh 等)が
+#      あるだけで無関係なコミットまで止まる。
+#      逆にテスト側を作業ツリーで見ると、テストを `git add` し忘れたまま
+#      検査スクリプトだけをコミットでき、素通りする。
+#      index を唯一の参照にすれば、どちらも起きない。
+index_file="$(mktemp)"
+trap 'rm -f "${index_file}"' EXIT
+
+if ! git ls-files -z > "${index_file}"; then
+  echo "追跡ファイルの一覧を取得できなかったため中断する" >&2
+  exit 1
+fi
+mapfile -d '' -t tracked < "${index_file}"
+
+in_index() {
+  local target="$1" entry
+  for entry in "${tracked[@]-}"; do
+    [ "${entry}" = "${target}" ] && return 0
+  done
+  return 1
+}
+
+for script in "${tracked[@]-}"; do
+  case "${script}" in
+    scripts/check-*.sh | scripts/lint-*.sh) ;;
+    *) continue ;;
+  esac
   name="$(basename "${script}" .sh)"
   test_file="scripts/tests/${name}.test.sh"
-  [ -f "${test_file}" ] || report "${script} に対応するテストが無い（${test_file} を作る）"
+  in_index "${test_file}" || report "${script} に対応するテストが無い（${test_file} を作る）"
 done
 
 # 2. テスト一覧を複数箇所へ書かない

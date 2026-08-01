@@ -132,6 +132,36 @@ printf 'cd "$(dirname "${BASH_SOURCE[0]}")"\n' >> target.sh  # idiom-ok: 検査�
 assert_exit 0 "誤検知しない: cd に dirname のコマンド置換"
 teardown
 
+# --- コメント判定と除外条件の境界 ---
+
+# `[[:space:]]*'#'*` はグロブでは「空白1文字 + 任意 + # + 任意」の意味になり、
+# 行末コメントの付いたインデント行を丸ごとコメント扱いして検査を飛ばしていた
+setup
+header
+printf '  mapfile -t files < <(git %s "*.sh")   # 対象を集める\n' 'ls-files' >> target.sh  # idiom-ok: 検査対象のフィクスチャ
+assert_exit 1 "検知: 行末コメントの付いたインデント行を飛ばさない"
+teardown
+
+setup
+header
+printf '  # mapfile -t files < <(git %s "*.sh") は書かない\n' 'ls-files' >> target.sh  # idiom-ok: 検査対象のフィクスチャ
+assert_exit 0 "誤検知しない: インデントされたコメント行"
+teardown
+
+# 除外条件を行全体で見ると、無関係な -z が検出を抑止する
+setup
+header
+printf 'if [ -z "${filter}" ]; then files=$(git %s "*.sh"); fi\n' 'ls-files' >> target.sh  # idiom-ok: 検査対象のフィクスチャ
+assert_exit 1 "検知: 無関係な -z では抑止されない"
+teardown
+
+# 行継続を畳まないと、次行にある -z を見落として誤検知する
+setup
+header
+printf 'git diff --cached %s \\\n  -z > "${tmp}"\n' '--name-only' >> target.sh  # idiom-ok: 検査対象のフィクスチャ
+assert_exit 0 "誤検知しない: 行継続の次行に -z がある"
+teardown
+
 # --- 適用除外マーカー ---
 
 # 検査器自身やテストのフィクスチャは、検出対象の形を書かざるを得ない。

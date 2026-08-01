@@ -37,24 +37,37 @@ set -euo pipefail
 [ "$#" -gt 0 ] || exit 0
 
 violations=0
-hits_file="$(mktemp)"
-trap 'rm -f "${hits_file}"' EXIT
+logical_file="$(mktemp)"
+trap 'rm -f "${logical_file}"' EXIT
+
+# 行継続(\)を1論理行へ畳み、`開始行番号<TAB>内容` を出力する。
+# 畳まないと `git diff --name-only \` の次行に -z がある形を誤検知する
+fold_continuations() {
+  awk '
+    { if (pending == 0) start = NR
+      cur = $0
+      if (cur ~ /\\$/) { sub(/\\$/, "", cur); buf = buf cur; pending = 1; next }
+      print start "\t" buf cur
+      buf = ""; pending = 0 }
+    END { if (pending) print start "\t" buf }
+  ' "$1"
+}
 
 # check_rule <ファイル> <検出regex> <除外regex|-> <見出し> <説明>
 check_rule() {
   local file="$1" detect="$2" allow="$3" title="$4" hint="$5"
-  local hit line_no line
+  local entry line_no line trimmed segment
 
-  grep -nE -- "${detect}" "${file}" > "${hits_file}" || true
+  while IFS= read -r entry; do
+    line_no="${entry%%$'\t'*}"
+    line="${entry#*$'\t'}"
 
-  while IFS= read -r hit; do
-    [ -n "${hit}" ] || continue
-    line_no="${hit%%:*}"
-    line="${hit#*:}"
-
-    # コメント行は対象外。罠そのものを解説するコメントが書けなくなるため
-    case "${line}" in
-      [[:space:]]*'#'* | '#'*) continue ;;
+    # 先頭の空白を落としてから判定する。
+    # `[[:space:]]*'#'*` のようなグロブは「空白1文字 + 任意 + # + 任意」の意味になり、
+    # 行末コメントの付いたインデント行までコメント扱いして検査を丸ごと飛ばす
+    trimmed="${line#"${line%%[![:space:]]*}"}"
+    case "${trimmed}" in
+      '#'*) continue ;;
     esac
 
     # 行末に `# idiom-ok: <理由>` があれば除外する。
@@ -65,19 +78,28 @@ check_rule() {
       *'idiom-ok'*) continue ;;
     esac
 
-    if [ "${allow}" != "-" ] && printf '%s' "${line}" | grep -qE -- "${allow}"; then
-      continue
+    [[ ${line} =~ ${detect} ]] || continue
+
+    # 除外条件は行全体ではなく、gitコマンド以降の範囲だけで見る。
+    # 行全体を見ると `if [ -z "${x}" ]; then ... git ls-files ...; fi` のように
+    # 無関係な -z が検出を抑止してしまう
+    if [ "${allow}" != "-" ]; then
+      segment="${line#*git }"
+      segment="${segment%%;*}"
+      [[ ${segment} =~ ${allow} ]] && continue
     fi
 
     echo "NG: ${file}:${line_no}: ${title}" >&2
     printf '%s\n' "${hint}" | sed 's/^/    /' >&2
     echo "" >&2
     violations=$((violations + 1))
-  done < "${hits_file}"
+  done < "${logical_file}"
 }
 
 for f in "$@"; do
   [ -f "${f}" ] || continue
+
+  fold_continuations "${f}" > "${logical_file}"
 
   check_rule "${f}" \
     'git ls-files|--name-only' `# idiom-ok: 検出パターンの定義そのもの` \
