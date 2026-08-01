@@ -10,13 +10,14 @@ set -euo pipefail
 #
 # 使い方:
 #   scripts/check-adr-format.sh [ファイル...]   引数省略時はstagedのADRを対象にする
+#
+# テスト: scripts/tests/check-adr-format.test.sh
 
 given=("$@")
 
 if [ "${#given[@]}" -eq 0 ]; then
-  mapfile -t given < <(
-    git diff --cached --name-only --diff-filter=ACMR | grep -E '^docs/adr/.*\.md$' || true
-  )
+  # -z: 非ASCIIパスがクォートされて検査対象から外れるのを防ぐ
+  mapfile -d '' -t given < <(git diff --cached --name-only -z --diff-filter=ACMR)
 fi
 
 # 呼び出し元(lefthookのglob、Claude Codeのhook)は docs/adr/ 配下のMarkdownを
@@ -64,8 +65,10 @@ for f in "${targets[@]}"; do
   grep -qE '^- 日付: [0-9]{4}-[0-9]{2}-[0-9]{2}$' "${f}" \
     || report "${f}: '- 日付: YYYY-MM-DD' が無い"
 
-  # 見出しは3つに固定する。増やすと同じ性質の記述が別の場所に散る
-  actual_headings="$(grep -E '^## ' "${f}" || true)"
+  # 見出しは3つに固定する。増やすと同じ性質の記述が別の場所に散る。
+  # コードフェンス内の `## ` は見出しではないため除外する
+  # (ADR本文にMarkdownの例を載せると誤検知するため)
+  actual_headings="$(awk '/^```/ { in_fence = !in_fence; next } !in_fence && /^## /' "${f}")"
   expected_headings=$'## コンテキスト\n## 決定\n## 結果'
   if [ "${actual_headings}" != "${expected_headings}" ]; then
     report "${f}: 見出しは '## コンテキスト' '## 決定' '## 結果' の3つをこの順で置く(現在: $(echo "${actual_headings}" | tr '\n' ' '))"

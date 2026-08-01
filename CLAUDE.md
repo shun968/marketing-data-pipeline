@@ -33,6 +33,7 @@ docs/                     設計ドキュメント（requirements / design / roa
 scripts/                  リポジトリ共通スクリプト（規約チェック / lint / コミットメッセージ補助）
   check-no-private-data.sh  収集データ・秘匿情報の混入検査（pre-commit）
   check-adr-format.sh       ADRの書式検査（pre-commit）
+  tests/                    上記2つの回帰テスト。`task test-check-scripts`
 lefthook.yml              gitフックの登録。規約の強制はここに集約する
 sns-collector/            収集ツール（Python 3.11+ / uv）
   CLAUDE.md               ← この領域の規約・開発コマンドはこちら
@@ -55,7 +56,7 @@ Taskfile.yml              開発タスク（lint / GitHub設定）
 
 | 対象 | 強制する仕組み | 規約の詳細 |
 |---|---|---|
-| 収集データ・秘匿情報の混入 | lefthook pre-commit → `scripts/check-no-private-data.sh` | 上の「最重要ルール」 |
+| 収集データ・秘匿情報の混入 | lefthook pre-commit と `git add` 直後のhook → `scripts/check-no-private-data.sh` | 上の「最重要ルール」 |
 | ADRの書式・ステータス | lefthook pre-commit と編集直後のhook → `scripts/check-adr-format.sh` | `adr` スキル |
 | コミットメッセージ | lefthook commit-msg → commitlint | `commitlint.config.js` |
 | Pythonのlint・フォーマット | ruff | `sns-collector/pyproject.toml` |
@@ -63,6 +64,7 @@ Taskfile.yml              開発タスク（lint / GitHub設定）
 - 領域固有の規約は各ディレクトリの `CLAUDE.md` に置く（例: `sns-collector/CLAUDE.md`）
 - 作業手順は `.claude/skills/` に置く。該当する作業に入ったらスキルに従う
 - **検査を追加したらこの表に行を足し、ドキュメント側の重複記述を消す**
+- 検査スクリプトを変更したら `scripts/tests/` に回帰テストを足す。**「検知できること」と同じ重みで「誤検知しないこと」をテストする。** 誤検知は `--no-verify` の常用を招き、ゲートを無効化する
 
 コミットメッセージの形（body・footerは空、件名末尾にissue参照）:
 

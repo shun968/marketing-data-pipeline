@@ -10,6 +10,18 @@ tasks:
     cmds:
       - npm install
 
+  test-check-scripts:
+    desc: pre-commitフックの検査スクリプト(scripts/check-*.sh)をテストする
+    summary: |
+      収集データ・秘匿情報の混入検査とADR書式検査の回帰テストを実行する。
+
+      これらのスクリプトはリポジトリでもっとも重い制約(収集データを外部へ出さない)を
+      守る唯一の機構であり、壊れても通常の開発では気づけない。
+      pre-commitでも scripts/ の変更時に自動実行される。
+    cmds:
+      - ./scripts/tests/check-no-private-data.test.sh
+      - ./scripts/tests/check-adr-format.test.sh
+
   setup-github-repo-rules:
     desc: GitHubリポジトリ設定を標準ルールに揃える
     summary: |

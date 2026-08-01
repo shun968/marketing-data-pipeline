@@ -9,6 +9,12 @@ pre-commit:
       glob: "docs/adr/*.md"
       run: ./scripts/check-adr-format.sh {staged_files}
 
+    # 検査スクリプト自体が変わったときだけ回す。
+    # 常時実行すると毎コミットに1.6秒上乗せされる
+    - name: check-scripts-test
+      glob: "scripts/**"
+      run: ./scripts/tests/check-no-private-data.test.sh && ./scripts/tests/check-adr-format.test.sh
+
     - name: lint
       run: ./scripts/lint-projects.sh --staged-only
 
