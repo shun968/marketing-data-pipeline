@@ -1,8 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# pre-commitフック用。収集データ・状態ファイル・生成レポート・APIキーが
-# コミットへ混入していないかを検査し、見つかったらコミットを中断する。
+# 収集データ・状態ファイル・生成レポート・APIキーがコミットへ混入していないかを
+# 検査し、見つかったら中断する。
+#
+# 使い方:
+#   scripts/check-no-private-data.sh                 staged を検査する(pre-commit用・既定)
+#   scripts/check-no-private-data.sh --range A...B   範囲の変更ファイルを検査する(CI用)
+#   scripts/check-no-private-data.sh --all           追跡中の全ファイルを検査する
+#
+# CI用モードが要る理由:
+#   CIにはステージング領域が無い。既定のまま実行すると対象が常に0件になり、
+#   「通っているのに何も見ていない」状態になる。
 #
 # なぜ強制するか:
 #   このリポジトリはPublicである。一度pushした内容はforce-pushで履歴を書き換えても
@@ -21,14 +30,41 @@ set -euo pipefail
 #
 # テスト: scripts/tests/check-no-private-data.test.sh
 
+MODE="staged"
+RANGE=""
+case "${1-}" in
+  "") ;;
+  --all) MODE="all" ;;
+  --range)
+    MODE="range"
+    RANGE="${2-}"
+    [ -n "${RANGE}" ] || { echo "usage: $0 --range <base>...<head>" >&2; exit 2; }
+    ;;
+  *) echo "usage: $0 [--range <base>...<head> | --all]" >&2; exit 2 ;;
+esac
+
 # -z: パスをNUL区切り・エスケープなしで出力する。
 #     既定(core.quotePath=true)では非ASCIIパスが "\346\212\225..." 形式へ
-#     クォートされ、`git show ":${f}"` が失敗して黙って検査対象から外れる。
+#     クォートされ、`git show` が失敗して黙って検査対象から外れる。
 #     日本語のファイル名を使う可能性がある以上、-z でなければ検出漏れになる。
 # --diff-filter=ACMR: Added/Copied/Modified/Renamed のみ。
 #     Deleted を含めると、既に存在しないパスを検査対象にしてしまう
-mapfile -d '' -t staged < <(git diff --cached --name-only -z --diff-filter=ACMR)
+case "${MODE}" in
+  staged) mapfile -d '' -t staged < <(git diff --cached --name-only -z --diff-filter=ACMR) ;;
+  range)  mapfile -d '' -t staged < <(git diff --name-only -z --diff-filter=ACMR "${RANGE}") ;;
+  all)    mapfile -d '' -t staged < <(git ls-files -z) ;;
+esac
 [ "${#staged[@]}" -gt 0 ] || exit 0
+
+# staged: indexの内容を読む。`git add` 後に作業ツリー側だけ修正されていても、
+#         実際にコミットされるのはindexの内容であるため。
+# range/all: HEADの内容を読む。CIではチェックアウト済みのコミットが検査対象になる。
+read_content() {
+  case "${MODE}" in
+    staged) git show ":$1" 2>/dev/null || true ;;
+    *)      git show "HEAD:$1" 2>/dev/null || true ;;
+  esac
+}
 
 violations=0
 
@@ -44,12 +80,16 @@ report() {
 forbidden=()
 for f in "${staged[@]}"; do
   case "${f}" in
+    # .env.example / .env.sample はキーを含まないテンプレートであり、追跡が前提。
+    # 実キーが書かれてしまった場合は、下の「秘匿情報らしき文字列」検査で捕捉する。
+    # ここを .env.* の後ろに置くと先にマッチして誤検知になるため、順序が意味を持つ。
+    .env.example | .env.sample | */.env.example | */.env.sample) continue ;;
     sns-collector/data/* | sns-collector/state/* | sns-collector/reports/*) ;;
     .env | .env.* | */.env | */.env.*) ;;
     *) continue ;;
   esac
   forbidden+=("${f}")
-  report "非公開ファイルがstagedにある: ${f}"
+  report "非公開ファイルが含まれている: ${f}"
 done
 
 # 2. .gitignore の対象がstagedに入っていないか
@@ -66,7 +106,7 @@ for f in "${ignored[@]}"; do
     [ "${g}" = "${f}" ] && { duplicate=1; break; }
   done
   [ "${duplicate}" -eq 1 ] && continue
-  report ".gitignore対象がstagedにある: ${f}"
+  report ".gitignore対象が含まれている: ${f}"
 done
 
 # 3. 秘匿情報らしき文字列
@@ -92,9 +132,7 @@ patterns=(
 for f in "${staged[@]}"; do
   [ "${f}" = "${SELF}" ] && continue
 
-  # 作業ツリーではなくindexの内容を読む。
-  # `git add` 後に作業ツリー側だけ修正されていても、実際にコミットされるのはindexの内容
-  content="$(git show ":${f}" 2>/dev/null || true)"
+  content="$(read_content "${f}")"
   [ -n "${content}" ] || continue
 
   for entry in "${patterns[@]}"; do
@@ -114,7 +152,7 @@ done
 if [ "${violations}" -gt 0 ]; then
   cat >&2 <<'MSG'
 
-コミットを中断した。収集データ・秘匿情報は外部へ出してはならない(CLAUDE.md)。
+収集データ・秘匿情報は外部へ出してはならない(CLAUDE.md)。
 
 対処:
   git restore --staged <ファイル>     stagedから外す
@@ -122,6 +160,9 @@ if [ "${violations}" -gt 0 ]; then
 
 誤検知だと判断した場合は、--no-verify で迂回せず、検出パターンを修正して
 scripts/tests/ に「検知してはいけないケース」としてテストを追加すること。
+
+既にpush済みの場合、force-pushで履歴を書き換えてもGitHub側にダングリング
+コミットとして残る。APIキーは必ず失効させ、再発行すること。
 MSG
   exit 1
 fi

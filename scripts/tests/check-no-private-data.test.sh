@@ -35,10 +35,11 @@ teardown() {
   [ -n "${workdir}" ] && rm -rf "${workdir}"
 }
 
-# assert_exit <期待する終了コード> <ケース名>
+# assert_exit <期待する終了コード> <ケース名> [スクリプトへの引数...]
 assert_exit() {
   local expected="$1" name="$2" actual=0
-  ./scripts/check-no-private-data.sh > /dev/null 2>&1 || actual=$?
+  shift 2
+  ./scripts/check-no-private-data.sh "$@" > /dev/null 2>&1 || actual=$?
   if [ "${actual}" -eq "${expected}" ]; then
     echo "  ok   ${name}"
     passed=$((passed + 1))
@@ -126,9 +127,82 @@ git add meta.txt
 assert_exit 0 "コミットハッシュを誤検知しない"
 teardown
 
+# .env.example はキーを含まないテンプレートで、追跡が前提。
+# .env.* にマッチさせると追跡済みファイルで恒久的に止まる
+setup
+printf 'YOUTUBE_API_KEY=\n' > sns-collector/.env.example
+git add -f sns-collector/.env.example
+assert_exit 0 ".env.exampleを誤検知しない"
+teardown
+
+setup
+printf 'YOUTUBE_API_KEY=\n' > .env.sample
+git add -f .env.sample
+assert_exit 0 ".env.sampleを誤検知しない"
+teardown
+
+# テンプレートであっても、実キーが書かれていれば止める
+setup
+printf 'GOOGLE_API_KEY=%s%s\n' 'AIza' "$(printf 'B%.0s' {1..35})" > sns-collector/.env.example
+git add -f sns-collector/.env.example
+assert_exit 1 ".env.exampleに実キーが書かれていれば検出する"
+teardown
+
 setup
 git commit -qm init
 assert_exit 0 "stagedが空なら何もしない"
+teardown
+
+# --- CI用モード ---
+#
+# CIにはステージング領域が無い。既定モードのまま実行すると対象が常に0件になり、
+# 「通っているのに何も見ていない」状態になるため、範囲指定モードが要る。
+
+setup
+git commit -qm init
+base="$(git rev-parse HEAD)"
+printf 'key = "%s%s"\n' 'sk-ant-' "$(printf 'A%.0s' {1..30})" > leaked.py
+git add leaked.py
+git commit -qm leak
+assert_exit 1 "--range: 範囲内のコミットに含まれる秘匿情報を検出する" --range "${base}...HEAD"
+teardown
+
+setup
+git commit -qm init
+printf 'key = "%s%s"\n' 'sk-ant-' "$(printf 'A%.0s' {1..30})" > leaked.py
+git add leaked.py
+git commit -qm leak
+base="$(git rev-parse HEAD)"
+echo '# doc' > README.md
+git add README.md
+git commit -qm doc
+assert_exit 0 "--range: 範囲外(base以前)の秘匿情報は対象にしない" --range "${base}...HEAD"
+teardown
+
+setup
+git commit -qm init
+printf 'key = "%s%s"\n' 'sk-ant-' "$(printf 'A%.0s' {1..30})" > leaked.py
+git add leaked.py
+git commit -qm leak
+assert_exit 1 "--all: 追跡中の全ファイルから検出する" --all
+teardown
+
+setup
+git commit -qm init
+echo '# 通常のドキュメント' > README.md
+git add README.md
+git commit -qm doc
+assert_exit 0 "--all: 問題が無ければ通す" --all
+teardown
+
+setup
+git commit -qm init
+assert_exit 2 "--range に引数が無ければ使い方を示して終了する" --range
+teardown
+
+setup
+git commit -qm init
+assert_exit 2 "未知のオプションを拒否する" --unknown
 teardown
 
 echo "  ---"
