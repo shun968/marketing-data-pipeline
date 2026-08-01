@@ -15,6 +15,11 @@ pre-commit:
       glob: "scripts/**"
       run: ./scripts/tests/run-all.sh
 
+    # 「規約を守る仕組みが在るか」を見る。個々のファイルではなく構造の検査であり、
+    # 変更箇所に依存しないため常に回す(数十ミリ秒)
+    - name: repo-conventions
+      run: ./scripts/check-repo-conventions.sh
+
     # シェル・YAMLが変わったときだけ回す。CI(guards)と同じスクリプトを呼ぶ。
     # --staged を付けないと未追跡の一時スクリプトまで検査対象になり、
     # 無関係なコミットが止まる

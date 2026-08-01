@@ -17,7 +17,18 @@ given=("$@")
 
 if [ "${#given[@]}" -eq 0 ]; then
   # -z: 非ASCIIパスがクォートされて検査対象から外れるのを防ぐ
-  mapfile -d '' -t given < <(git diff --cached --name-only -z --diff-filter=ACMR)
+  #
+  # 一時ファイルを経由するのはgitの終了ステータスを捨てないため。
+  # `mapfile < <(git ...)` はプロセス置換で set -e の対象外になり、
+  # gitが失敗しても配列が空になるだけで「対象なし」と表示して0で終わる
+  staged_list="$(mktemp)"
+  trap 'rm -f "${staged_list}"' EXIT
+
+  if ! git diff --cached --name-only -z --diff-filter=ACMR > "${staged_list}"; then
+    echo "stagedのファイル一覧を取得できなかったため中断する" >&2
+    exit 1
+  fi
+  mapfile -d '' -t given < "${staged_list}"
 fi
 
 # 呼び出し元(lefthookのglob、Claude Codeのhook)は docs/adr/ 配下のMarkdownを

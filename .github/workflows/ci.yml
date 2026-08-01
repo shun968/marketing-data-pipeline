@@ -69,6 +69,11 @@ jobs:
       - name: lint scripts and yaml
         run: ./scripts/lint-scripts.sh --all
 
+      # 「規約を守る仕組みが在るか」の検査。
+      # 検査スクリプトのテスト漏れや、テスト一覧の重複列挙を検出する
+      - name: repo conventions
+        run: ./scripts/check-repo-conventions.sh
+
   sns-collector:
     name: sns-collector
     runs-on: ubuntu-latest

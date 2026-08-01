@@ -33,6 +33,8 @@ docs/                     設計ドキュメント（requirements / design / roa
 scripts/                  リポジトリ共通スクリプト（規約チェック / lint / コミットメッセージ補助）
   check-no-private-data.sh  収集データ・秘匿情報の混入検査（pre-commit）
   check-adr-format.sh       ADRの書式検査（pre-commit）
+  check-shell-idioms.sh     過去に事故を起こしたシェルの書き方を検出（pre-commit / CI）
+  check-repo-conventions.sh 規約を守る仕組みが在るかの検査（pre-commit / CI）
   lint-scripts.sh           シェル・YAMLの静的検査（pre-commit / CI）
   tests/                    検査スクリプトの回帰テスト。`task test-check-scripts`
 lefthook.yml              gitフックの登録。規約の強制はここに集約する
@@ -62,6 +64,8 @@ Taskfile.yml              開発タスク（lint / GitHub設定）
 | コミットメッセージ | lefthook commit-msg → commitlint | `commitlint.config.js` |
 | Pythonのlint・フォーマット | ruff（CI `sns-collector`） | `sns-collector/pyproject.toml` |
 | シェル・YAMLの静的検査 | lefthook pre-commit と CI `guards` → `scripts/lint-scripts.sh` | shellcheck / `.yamllint.yml` |
+| 過去に事故を起こしたシェルの書き方 | 同上 → `scripts/check-shell-idioms.sh` | 同スクリプトの先頭コメント |
+| 検査スクリプトのテスト同伴・列挙の重複 | lefthook pre-commit と CI `guards` → `scripts/check-repo-conventions.sh` | 同スクリプトの先頭コメント |
 
 - 領域固有の規約は各ディレクトリの `CLAUDE.md` に置く（例: `sns-collector/CLAUDE.md`）
 - 作業手順は `.claude/skills/` に置く。該当する作業に入ったらスキルに従う
@@ -80,7 +84,7 @@ feat(sns-collector): redefine keyword strategy for demand signals (#3)
 
 | ジョブ | 内容 |
 |---|---|
-| `guards` | シェル・YAMLの静的検査 / 検査スクリプトの回帰テスト / 収集データ・秘匿情報の混入検査 / ADR書式 |
+| `guards` | シェル・YAMLの静的検査 / 禁止イディオム / リポジトリ規約 / 検査スクリプトの回帰テスト / 収集データ・秘匿情報の混入検査 / ADR書式 |
 | `sns-collector` | ruff check / ruff format --check / pytest |
 
 **CIとローカルで検査の実装を分けない。** CIのステップはローカルと同じスクリプトを呼ぶだけにする。同じ検査を2箇所に書くと、手元で通ったものがCIで落ちる。
@@ -94,6 +98,18 @@ feat(sns-collector): redefine keyword strategy for demand signals (#3)
 **PRを出したら必ず `/code-review <PR番号> --comment` を実行する。**
 
 rulesetの `required_review_thread_resolution` は「未解決コメントがあるPR」しか止められない。レビューを走らせなければコメントはゼロで素通りするため、**実行そのものは運用で担保するしかない**。マージ前に必ず実行すること。
+
+### 指摘を閉じる条件
+
+**「直した」だけでは指摘を閉じない。** 指摘ごとに次のいずれかを行う。
+
+1. 機械検査を追加する（`scripts/check-shell-idioms.sh` にルールを足す、など）
+2. スキルに追記する
+3. **機械化できない理由をコードのコメントに残す**
+
+同じ指摘が別のファイルで繰り返し発生している。非ASCIIパスの `-z` 漏れは3つのスクリプトで、テストの同伴漏れは2回起きた。**修正だけでは次のファイルで再発する。**
+
+規約を散文で強く書いても、その作業の瞬間に想起されなければ発火しない。**規約を強くするのではなく、規約を検査に変換する。**
 
 ### 観点
 
