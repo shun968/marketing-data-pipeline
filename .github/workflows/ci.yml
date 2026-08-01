@@ -28,13 +28,15 @@ jobs:
           # 混入検査はPRのbaseとの差分を見るため、履歴が要る
           fetch-depth: 0
 
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
       # 検査スクリプト自身の回帰テスト。
       # これらはリポジトリでもっとも重い制約(収集データを外部へ出さない)を
       # 守る唯一の機構であり、壊れても通常の開発では気づけない。
       - name: check scripts regression test
-        run: |
-          ./scripts/tests/check-no-private-data.test.sh
-          ./scripts/tests/check-adr-format.test.sh
+        run: ./scripts/tests/run-all.sh
 
       # CIにはステージング領域が無いため --range で差分を渡す。
       # 既定モードのままだと対象が常に0件になり、通っているのに何も見ていない状態になる。
@@ -57,6 +59,15 @@ jobs:
           else
             echo "ADRが無いためスキップ"
           fi
+
+      # lint は Taskfile の lint-scripts と同じ実装を呼ぶ。
+      # CIとローカルでコマンドが分かれると、手元で通ったものがCIで落ちる。
+      #
+      # 混入検査より後に置く。lintの失敗(や上流リリースでのバージョン解決失敗)で
+      # 手前が止まると、収集データの混入検査が一度も走らないまま赤くなり、
+      # 「何が問題なのか」の優先順位が入れ替わる
+      - name: lint scripts and yaml
+        run: ./scripts/lint-scripts.sh --all
 
   sns-collector:
     name: sns-collector

@@ -1,0 +1,28 @@
+# yamllint 設定。CIの guards ジョブと `task lint-scripts` で使う。
+#
+# 目的は構文崩れとキー重複の検出であり、体裁を揃えることではない。
+# 既定設定では48件の指摘が出るが、内訳はコメント前の空白数と行長のみで、
+# これに合わせて config/keywords.yaml を整形すると、キーワード採用の根拠を
+# 書いた行末注釈の並びが崩れる。注釈はキーワード設計の判断材料であり、
+# 体裁ルールのために読みにくくする理由がない。
+#
+# 無効化するのは体裁系だけに留める。key-duplicates（同じキーの二重定義で
+# 後勝ちになり、キーワードが静かに消える）や構文エラーは既定のまま残す。
+
+extends: default
+
+rules:
+  # 行末注釈の前の空白数。上記のとおり keywords.yaml の注釈を守るため無効化する
+  comments: disable
+  comments-indentation: disable
+
+  # 長いキーワード定義と、Taskfile.yml の summary を折り返させないため
+  line-length: disable
+
+  # `---` の有無を強制しない。既存ファイルはいずれも単一ドキュメント
+  document-start: disable
+
+  # GitHub Actions の `on:` がYAML 1.1の真偽値として解釈されるため、
+  # キー側の検査だけ外す。値側（yes/no を bool と誤解する等）は残す
+  truthy:
+    check-keys: false
