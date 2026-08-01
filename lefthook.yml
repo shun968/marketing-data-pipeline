@@ -1,5 +1,20 @@
 pre-commit:
+  # 逐次実行する。no-private-data を先頭に置き、混入を検出したら
+  # 他ジョブの出力に埋もれる前に中断させる
   jobs:
+    - name: no-private-data
+      run: ./scripts/check-no-private-data.sh
+
+    - name: adr-format
+      glob: "docs/adr/*.md"
+      run: ./scripts/check-adr-format.sh {staged_files}
+
+    # 検査スクリプト自体が変わったときだけ回す。
+    # 常時実行すると毎コミットに1.6秒上乗せされる
+    - name: check-scripts-test
+      glob: "scripts/**"
+      run: ./scripts/tests/check-no-private-data.test.sh && ./scripts/tests/check-adr-format.test.sh
+
     - name: lint
       run: ./scripts/lint-projects.sh --staged-only
 

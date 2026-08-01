@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(git add *)",
+            "command": "root=\"$(git rev-parse --show-toplevel 2>/dev/null)\" || exit 0; cd \"$root\" || exit 0; ./scripts/check-no-private-data.sh || exit 2",
+            "statusMessage": "収集データ・秘匿情報の混入を確認中"
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=$(jq -r \".tool_input.file_path // .tool_response.filePath // empty\"); case \"$f\" in */docs/adr/[0-9][0-9][0-9][0-9]-*.md) root=\"$(git rev-parse --show-toplevel 2>/dev/null)\" || exit 0; cd \"$root\" || exit 0; ./scripts/check-adr-format.sh \"$f\" || exit 2 ;; esac",
+            "statusMessage": "ADRの書式を確認中"
+          }
+        ]
+      }
+    ]
+  }
+}
