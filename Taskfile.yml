@@ -35,9 +35,23 @@ tasks:
         5. "main" を含む名称のブランチを保護する Ruleset を作成/更新
            - PR必須(直接pushの禁止)
            - 会話(スレッド)解決必須
+           - CIの成功必須(guards / sns-collector)
            - force-push禁止
            - ブランチ削除禁止
            - 直線的な履歴を必須化(マージコミット禁止・ff-onlyのみ許可)
+
+      CIをマージ条件にしている理由:
+        pre-commitフック(lefthook)はローカルの善意に依存し、
+        git commit --no-verify で素通りする。GitHub UI上での直接編集にも効かない。
+        収集データの混入検査はこのリポジトリでもっとも重い制約を守る唯一の機構であり、
+        一度pushすると事後の取り消しが効かないため、サーバ側でも検証する。
+
+        context 名は .github/workflows/ci.yml のジョブ名と一致させること。
+        ここを変えるとチェックが永久にpendingになり、マージできなくなる。
+
+        strict_required_status_checks_policy は false にしている。
+        true にすると base が進むたびに rebase を要求されるが、
+        required_linear_history と併せると開発者1人には負担が大きい。
 
       ブランチ自動削除について:
         gh pr merge --delete-branch を毎回付けても、GitHubのUIから
@@ -130,6 +144,16 @@ tasks:
             { "type": "deletion" },
             { "type": "non_fast_forward" },
             { "type": "required_linear_history" },
+            {
+              "type": "required_status_checks",
+              "parameters": {
+                "strict_required_status_checks_policy": false,
+                "required_status_checks": [
+                  { "context": "guards" },
+                  { "context": "sns-collector" }
+                ]
+              }
+            },
             {
               "type": "pull_request",
               "parameters": {

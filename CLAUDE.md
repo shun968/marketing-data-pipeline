@@ -72,6 +72,19 @@ Taskfile.yml              開発タスク（lint / GitHub設定）
 feat(sns-collector): redefine keyword strategy for demand signals (#3)
 ```
 
+## CI
+
+`.github/workflows/ci.yml` がPRとmainへのpushで走り、rulesetの `required_status_checks` によりマージ条件になっている。
+
+| ジョブ | 内容 |
+|---|---|
+| `guards` | 検査スクリプトの回帰テスト / 収集データ・秘匿情報の混入検査 / ADR書式 |
+| `sns-collector` | ruff check / ruff format --check / pytest |
+
+**CIにはステージング領域が無い。** `check-no-private-data.sh` を既定モードのままCIで実行すると対象が常に0件になり、通っているのに何も見ていない状態になる。PRでは `--range <base>...HEAD`、mainへのpushでは `--all` を渡す。
+
+ジョブ名は `Taskfile.yml` の `required_status_checks` の `context` と一致させること。ここがずれるとチェックが永久にpendingになり、マージできなくなる。
+
 ## レビュー
 
 **PRを出したら必ず `/code-review <PR番号> --comment` を実行する。**

@@ -1,0 +1,85 @@
+name: CI
+
+# pre-commitフック(lefthook)はローカルの善意に依存し、--no-verify で素通りする。
+# GitHub UI上での直接編集にも効かない。
+# ここで同じ検査を実行し、ruleset の required_status_checks でマージをゲートする。
+#
+# Publicリポジトリのため Actions の実行は無料。
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# 同一PRへの連続pushで古いジョブを打ち切る
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  guards:
+    name: guards
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # 混入検査はPRのbaseとの差分を見るため、履歴が要る
+          fetch-depth: 0
+
+      # 検査スクリプト自身の回帰テスト。
+      # これらはリポジトリでもっとも重い制約(収集データを外部へ出さない)を
+      # 守る唯一の機構であり、壊れても通常の開発では気づけない。
+      - name: check scripts regression test
+        run: |
+          ./scripts/tests/check-no-private-data.test.sh
+          ./scripts/tests/check-adr-format.test.sh
+
+      # CIにはステージング領域が無いため --range で差分を渡す。
+      # 既定モードのままだと対象が常に0件になり、通っているのに何も見ていない状態になる。
+      - name: no private data
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            ./scripts/check-no-private-data.sh --range "${{ github.event.pull_request.base.sha }}...HEAD"
+          else
+            ./scripts/check-no-private-data.sh --all
+          fi
+
+      # 引数で渡したファイルを作業ツリーから読むため、CIでもそのまま使える。
+      # 差分ではなく全ADRを対象にする(過去分の書式崩れも検出したい)
+      - name: adr format
+        run: |
+          shopt -s nullglob
+          files=(docs/adr/*.md)
+          if [ ${#files[@]} -gt 0 ]; then
+            ./scripts/check-adr-format.sh "${files[@]}"
+          else
+            echo "ADRが無いためスキップ"
+          fi
+
+  sns-collector:
+    name: sns-collector
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sns-collector
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: install
+        run: uv sync --locked
+
+      - name: ruff check
+        run: uv run ruff check .
+
+      - name: ruff format
+        run: uv run ruff format --check .
+
+      # 実API通信は行わない(requestsをモックした単体テストのみ)
+      - name: pytest
+        run: uv run pytest -q
