@@ -14,13 +14,26 @@ set -euo pipefail
 #   scripts/lint-projects.sh --staged-only   # git staged中の変更を含むプロジェクトのみlint(pre-commit用)
 
 STAGED_ONLY="${1:-}"
+staged_files=()
 
 if [ "${STAGED_ONLY}" = "--staged-only" ]; then
   # --cached: 作業ツリーではなくindex(git add済みの内容)を比較対象にする
   # --name-only: 差分の中身ではなく、変更されたファイルパスのみを出力する
   # --diff-filter=ACM: 変更種別をAdded/Copied/Modifiedに限定する
   #                     (Deleted等を含めると、実体の無いファイルパスに対してlint対象ディレクトリ判定してしまうため)
-  staged_files="$(git diff --cached --name-only --diff-filter=ACM)"
+  # -z: 非ASCIIパスは既定でクォートされ "\346\212\225..." になる。
+  #     日本語名のファイルだけを変更したとき、ディレクトリ判定に失敗して
+  #     そのプロジェクトのlintが黙ってスキップされる
+  staged_list="$(mktemp)"
+  trap 'rm -f "${staged_list}"' EXIT
+
+  # 一時ファイル経由にするのはgitの失敗を握り潰さないため。
+  # プロセス置換だと失敗しても空配列になり、全プロジェクトが対象外になって緑になる
+  if ! git diff --cached --name-only -z --diff-filter=ACM > "${staged_list}"; then
+    echo "stagedのファイル一覧を取得できなかったため中断する" >&2
+    exit 1
+  fi
+  mapfile -d '' -t staged_files < "${staged_list}"
 fi
 
 for pkg in */package.json; do
@@ -36,7 +49,18 @@ for pkg in */package.json; do
   grep -q '"lint"[[:space:]]*:' "${pkg}" || continue
 
   if [ "${STAGED_ONLY}" = "--staged-only" ]; then
-    echo "${staged_files}" | grep -q "^${dir}/" || continue
+    # 配列を1件ずつ前方一致で判定する。改行区切りの文字列にして grep へ渡すと、
+    # 改行を含むファイル名で判定が壊れる
+    matched=0
+    for staged in "${staged_files[@]-}"; do
+      case "${staged}" in
+        "${dir}/"*)
+          matched=1
+          break
+          ;;
+      esac
+    done
+    [ "${matched}" -eq 1 ] || continue
   fi
 
   echo "==> lint: ${dir}"

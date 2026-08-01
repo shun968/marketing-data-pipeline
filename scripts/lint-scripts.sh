@@ -91,6 +91,17 @@ else
   echo "  対象なし"
 fi
 
+# 上のlinterが見るのは一般的なシェルの誤りで、このリポジトリで実際に
+# 事故を起こしたイディオム(非ASCIIパスの取りこぼし等)は検出できない。
+# 直前の collect の結果をそのまま使い、配線箇所を増やさない
+echo "==> 禁止イディオム"
+if [ "${#FILES[@]}" -gt 0 ]; then
+  "${root}/scripts/check-shell-idioms.sh" "${FILES[@]}"
+  echo "  ${#FILES[@]} ファイル: 指摘なし"
+else
+  echo "  対象なし"
+fi
+
 # --strict: warning も終了コードに反映させる。
 # 体裁ルールは .yamllint.yml で無効化済みのため、ここで出る warning は
 # キー重複など実害のあるものに限られる

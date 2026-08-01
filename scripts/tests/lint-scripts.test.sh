@@ -23,6 +23,8 @@ setup() {
   git config user.name test
   mkdir -p scripts
   cp "${SCRIPT}" scripts/lint-scripts.sh
+  # lint-scripts.sh から呼ばれるため、無いと 127 で落ちる
+  cp "${REPO_ROOT}/scripts/check-shell-idioms.sh" scripts/
   cp "${YAMLLINT_CONFIG}" .yamllint.yml
 }
 
@@ -135,7 +137,7 @@ teardown
 setup
 write_clean_sh "検査対象.sh"
 git add -A
-assert_scanned 2 "日本語ファイル名のファイルを検査対象に含む（自身+1）"
+assert_scanned 3 "日本語ファイル名のファイルを検査対象に含む（検査スクリプト2本+1）"
 teardown
 
 # `git rm` ではなく `rm` で消したファイルはindexに残る。
@@ -174,7 +176,7 @@ write_clean_sh tracked.sh
 git add -A
 git commit -qm init
 write_clean_sh untracked.sh
-assert_scanned 2 "--all は未追跡ファイルを対象にしない" --all
+assert_scanned 3 "--all は未追跡ファイルを対象にしない" --all
 teardown
 
 setup
@@ -182,7 +184,7 @@ write_clean_sh tracked.sh
 git add -A
 git commit -qm init
 write_clean_sh untracked.sh
-assert_scanned 3 "既定は未追跡ファイルも対象にする"
+assert_scanned 4 "既定は未追跡ファイルも対象にする"
 teardown
 
 echo "  ---"
