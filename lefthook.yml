@@ -13,7 +13,14 @@ pre-commit:
     # 常時実行すると毎コミットに1.6秒上乗せされる
     - name: check-scripts-test
       glob: "scripts/**"
-      run: ./scripts/tests/check-no-private-data.test.sh && ./scripts/tests/check-adr-format.test.sh
+      run: ./scripts/tests/run-all.sh
+
+    # シェル・YAMLが変わったときだけ回す。CI(guards)と同じスクリプトを呼ぶ。
+    # --staged を付けないと未追跡の一時スクリプトまで検査対象になり、
+    # 無関係なコミットが止まる
+    - name: lint-scripts
+      glob: "*.{sh,yml,yaml}"
+      run: ./scripts/lint-scripts.sh --staged
 
     - name: lint
       run: ./scripts/lint-projects.sh --staged-only
