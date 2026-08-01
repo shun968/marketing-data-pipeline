@@ -33,7 +33,8 @@ docs/                     設計ドキュメント（requirements / design / roa
 scripts/                  リポジトリ共通スクリプト（規約チェック / lint / コミットメッセージ補助）
   check-no-private-data.sh  収集データ・秘匿情報の混入検査（pre-commit）
   check-adr-format.sh       ADRの書式検査（pre-commit）
-  tests/                    上記2つの回帰テスト。`task test-check-scripts`
+  lint-scripts.sh           シェル・YAMLの静的検査（pre-commit / CI）
+  tests/                    検査スクリプトの回帰テスト。`task test-check-scripts`
 lefthook.yml              gitフックの登録。規約の強制はここに集約する
 sns-collector/            収集ツール（Python 3.11+ / uv）
   CLAUDE.md               ← この領域の規約・開発コマンドはこちら
@@ -59,7 +60,8 @@ Taskfile.yml              開発タスク（lint / GitHub設定）
 | 収集データ・秘匿情報の混入 | lefthook pre-commit と `git add` 直後のhook → `scripts/check-no-private-data.sh` | 上の「最重要ルール」 |
 | ADRの書式・ステータス | lefthook pre-commit と編集直後のhook → `scripts/check-adr-format.sh` | `adr` スキル |
 | コミットメッセージ | lefthook commit-msg → commitlint | `commitlint.config.js` |
-| Pythonのlint・フォーマット | ruff | `sns-collector/pyproject.toml` |
+| Pythonのlint・フォーマット | ruff（CI `sns-collector`） | `sns-collector/pyproject.toml` |
+| シェル・YAMLの静的検査 | lefthook pre-commit と CI `guards` → `scripts/lint-scripts.sh` | shellcheck / `.yamllint.yml` |
 
 - 領域固有の規約は各ディレクトリの `CLAUDE.md` に置く（例: `sns-collector/CLAUDE.md`）
 - 作業手順は `.claude/skills/` に置く。該当する作業に入ったらスキルに従う
@@ -78,8 +80,10 @@ feat(sns-collector): redefine keyword strategy for demand signals (#3)
 
 | ジョブ | 内容 |
 |---|---|
-| `guards` | 検査スクリプトの回帰テスト / 収集データ・秘匿情報の混入検査 / ADR書式 |
+| `guards` | シェル・YAMLの静的検査 / 検査スクリプトの回帰テスト / 収集データ・秘匿情報の混入検査 / ADR書式 |
 | `sns-collector` | ruff check / ruff format --check / pytest |
+
+**CIとローカルで検査の実装を分けない。** CIのステップはローカルと同じスクリプトを呼ぶだけにする。同じ検査を2箇所に書くと、手元で通ったものがCIで落ちる。
 
 **CIにはステージング領域が無い。** `check-no-private-data.sh` を既定モードのままCIで実行すると対象が常に0件になり、通っているのに何も見ていない状態になる。PRでは `--range <base>...HEAD`、mainへのpushでは `--all` を渡す。
 

@@ -10,6 +10,17 @@ tasks:
     cmds:
       - npm install
 
+  lint-scripts:
+    desc: シェルスクリプトとYAMLを静的検査する(shellcheck / yamllint)
+    summary: |
+      CIの guards ジョブが呼ぶものと同一のスクリプトを実行する。
+      CIとローカルで実装を分けると、手元で通ったものがCIで落ちる。
+
+      対象は git ls-files で列挙するため、新しいディレクトリが増えても
+      追加作業なしで検査対象になる。
+    cmds:
+      - ./scripts/lint-scripts.sh
+
   test-check-scripts:
     desc: pre-commitフックの検査スクリプト(scripts/check-*.sh)をテストする
     summary: |

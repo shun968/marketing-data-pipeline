@@ -28,6 +28,19 @@ jobs:
           # 混入検査はPRのbaseとの差分を見るため、履歴が要る
           fetch-depth: 0
 
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      # lint は Taskfile の lint-scripts と同じ実装を呼ぶ。
+      # CIとローカルでコマンドが分かれると、手元で通ったものがCIで落ちる。
+      #
+      # shellcheck は ubuntu-latest にプリインストールされているが、
+      # ランナー更新でバージョンが変わり指摘が増減する。
+      # uvx 経由(shellcheck-py)にすると手元と同じ版で固定できる。
+      - name: lint scripts and yaml
+        run: ./scripts/lint-scripts.sh
+
       # 検査スクリプト自身の回帰テスト。
       # これらはリポジトリでもっとも重い制約(収集データを外部へ出さない)を
       # 守る唯一の機構であり、壊れても通常の開発では気づけない。

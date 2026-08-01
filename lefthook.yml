@@ -15,6 +15,11 @@ pre-commit:
       glob: "scripts/**"
       run: ./scripts/tests/check-no-private-data.test.sh && ./scripts/tests/check-adr-format.test.sh
 
+    # シェル・YAMLが変わったときだけ回す。CI(guards)と同じスクリプトを呼ぶ
+    - name: lint-scripts
+      glob: "*.{sh,yml,yaml}"
+      run: ./scripts/lint-scripts.sh
+
     - name: lint
       run: ./scripts/lint-projects.sh --staged-only
 
