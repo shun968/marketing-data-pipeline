@@ -29,13 +29,22 @@ tasks:
 
       適用内容:
         1. デフォルトブランチを main に統一
-        2. develop ブランチが残っていれば削除
-        3. "main" を含む名称のブランチを保護する Ruleset を作成/更新
+        2. マージ方式を Squash/Rebase のみに制限
+        3. マージ後に head ブランチを自動削除
+        4. develop ブランチが残っていれば削除
+        5. "main" を含む名称のブランチを保護する Ruleset を作成/更新
            - PR必須(直接pushの禁止)
            - 会話(スレッド)解決必須
            - force-push禁止
            - ブランチ削除禁止
            - 直線的な履歴を必須化(マージコミット禁止・ff-onlyのみ許可)
+
+      ブランチ自動削除について:
+        gh pr merge --delete-branch を毎回付けても、GitHubのUIから
+        マージした場合には効かない。リポジトリ設定にすることで
+        マージ経路によらず削除される。
+        削除後もPRページの Restore branch から復元でき、
+        変更内容は squash 後のコミットとして main に残る。
 
       承認要件について:
         required_approving_review_count / require_code_owner_review /
@@ -82,6 +91,9 @@ tasks:
 
         gh api -X PATCH "repos/${REPO}" -F allow_merge_commit=false >/dev/null
         echo "マージコミットの作成を無効化完了(Squash/Rebaseのみ許可)"
+
+        gh api -X PATCH "repos/${REPO}" -F delete_branch_on_merge=true >/dev/null
+        echo "マージ後のブランチ自動削除を有効化完了"
 
         if gh api "repos/${REPO}/branches" --paginate -q '.[].name' | grep -qx 'develop'; then
           gh api -X DELETE "repos/${REPO}/git/refs/heads/develop"
