@@ -14,25 +14,79 @@ set -euo pipefail
 #   同じ検査を2箇所に書くと、手元で通ったものがCIで落ちる。
 #   CI(.github/workflows/ci.yml)はこのスクリプトを呼ぶだけにしてある。
 #
-# 検査対象を git ls-files で列挙する理由:
-#   .venv や node_modules を除外でき、新しいディレクトリが増えても
-#   追加作業なしで対象になる。
-#   --others --exclude-standard を付けるのは、まだ `git add` していない
-#   新規スクリプトを手元で検査対象に含めるため。CIには未追跡ファイルが無いので
-#   結果は変わらない。
-
-cd "$(git rev-parse --show-toplevel)"
-
-# ubuntu-latest にはプリインストール版があるが、ランナー更新でバージョンが変わり
-# 指摘が増減する。uvx(shellcheck-py)なら手元と同じ版で固定できる。
+# 使い方:
+#   scripts/lint-scripts.sh            追跡済み + 未追跡を検査する(手元での既定)
+#   scripts/lint-scripts.sh --staged   stagedのファイルだけを検査する(pre-commit)
+#   scripts/lint-scripts.sh --all      追跡済みファイルすべてを検査する(CI)
 #
-# 行頭を `# shellcheck` で始めないこと。ディレクティブとして解釈され
-# SC1073 で落ちる（この検査を入れた最初のコミットで実際に踏んだ）
+# --staged が index ではなく作業ツリーの内容を読むことについて:
+#   check-no-private-data.sh は `git show ":${f}"` で index を読む。秘匿情報は
+#   一度通すと取り返しがつかず、`git add` 後に作業ツリーだけ直した状態を
+#   見逃せないため。lintの指摘は通ってしまっても実害が小さく、CIが --all で
+#   マージ対象の状態を検査するので、ここでは実装の単純さを優先している。
+#
+# テスト: scripts/tests/lint-scripts.test.sh
+
+# バージョンを固定する。ubuntu-latest のプリインストール版を使わない理由が
+# 「ランナー更新で指摘が増減する」である以上、uvx側で解決を最新に委ねると
+# 同じ問題が形を変えて残る(上流リリースだけでCIが赤くなる)
+SHELLCHECK_PKG="shellcheck-py==0.11.0.1"
+YAMLLINT_PKG="yamllint==1.38.0"
+
+mode="worktree"
+case "${1:-}" in
+  "") ;;
+  --staged) mode="staged" ;;
+  --all) mode="all" ;;
+  *)
+    echo "不明な引数: $1（--staged / --all のみ）" >&2
+    exit 2
+    ;;
+esac
+
+# `cd "$(git rev-parse ...)"` と書かない。コマンド置換が失敗しても
+# bashの `cd ""` は成功扱いになり、set -e を素通りする。
+# 代入にすれば git の終了コードがそのまま伝わる
+root="$(git rev-parse --show-toplevel)"
+cd "${root}"
+
+list_file="$(mktemp)"
+trap 'rm -f "${list_file}"' EXIT
+
+FILES=()
+
+# collect <パスパターン...> → FILES に結果を入れる
+#
+# `mapfile -t FILES < <(git ls-files ...)` と書かない。プロセス置換の中は
+# set -e の対象外で、git が失敗しても配列が空になるだけで済んでしまう。
+# 「対象なし」と表示して exit 0 する = 何も検査していないのにCIが緑になる。
+# 一時ファイルへのリダイレクトにすれば git の失敗でそのまま落ちる。
+#
+# -z を付ける理由: 既定(core.quotePath=true)では非ASCIIパスが
+# "\350\250\255\345\256\232.yml" 形式へクォートされ、実在しないパスとして
+# linterへ渡り、日本語名のファイルが1つあるだけで全コミットが落ちる。
+collect() {
+  case "${mode}" in
+    staged) git diff --cached --name-only -z --diff-filter=ACMR -- "$@" > "${list_file}" ;;
+    all) git ls-files -z -- "$@" > "${list_file}" ;;
+    *) git ls-files -z --cached --others --exclude-standard -- "$@" > "${list_file}" ;;
+  esac
+
+  FILES=()
+  local f
+  while IFS= read -r -d '' f; do
+    # `git rm` ではなく `rm` で消したファイルは index に残る。
+    # 実体が無いパスを渡すと linter が "does not exist" で中断し、
+    # 無関係なコミットまで巻き添えで止まる
+    [ -f "${f}" ] && FILES+=("${f}")
+  done < "${list_file}"
+}
+
 echo "==> shellcheck"
-mapfile -t sh_files < <(git ls-files --cached --others --exclude-standard '*.sh')
-if [ "${#sh_files[@]}" -gt 0 ]; then
-  uvx --from shellcheck-py shellcheck "${sh_files[@]}"
-  echo "  ${#sh_files[@]} ファイル: 指摘なし"
+collect '*.sh'
+if [ "${#FILES[@]}" -gt 0 ]; then
+  uvx --from "${SHELLCHECK_PKG}" shellcheck "${FILES[@]}"
+  echo "  ${#FILES[@]} ファイル: 指摘なし"
 else
   echo "  対象なし"
 fi
@@ -41,10 +95,10 @@ fi
 # 体裁ルールは .yamllint.yml で無効化済みのため、ここで出る warning は
 # キー重複など実害のあるものに限られる
 echo "==> yamllint"
-mapfile -t yaml_files < <(git ls-files --cached --others --exclude-standard '*.yml' '*.yaml')
-if [ "${#yaml_files[@]}" -gt 0 ]; then
-  uvx yamllint --strict "${yaml_files[@]}"
-  echo "  ${#yaml_files[@]} ファイル: 指摘なし"
+collect '*.yml' '*.yaml'
+if [ "${#FILES[@]}" -gt 0 ]; then
+  uvx --from "${YAMLLINT_PKG}" yamllint --strict "${FILES[@]}"
+  echo "  ${#FILES[@]} ファイル: 指摘なし"
 else
   echo "  対象なし"
 fi
