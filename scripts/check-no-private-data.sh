@@ -32,13 +32,22 @@ set -euo pipefail
 
 MODE="staged"
 RANGE=""
+RANGE_HEAD="HEAD"
 case "${1-}" in
   "") ;;
   --all) MODE="all" ;;
   --range)
     MODE="range"
     RANGE="${2-}"
-    [ -n "${RANGE}" ] || { echo "usage: $0 --range <base>...<head>" >&2; exit 2; }
+    case "${RANGE}" in
+      "" | -*) echo "usage: $0 --range <base>...<head>" >&2; exit 2 ;;
+    esac
+    # 内容は範囲のhead側から読む。HEAD固定にすると、チェックアウト位置が
+    # 範囲headと異なる場合に git show が失敗し、空文字として黙って
+    # 検査対象から外れる(=漏洩を見逃す)。
+    # "A...B" / "A..B" のどちらでも B を取り出す。B省略時はHEAD
+    RANGE_HEAD="${RANGE##*..}"
+    [ -n "${RANGE_HEAD}" ] || RANGE_HEAD="HEAD"
     ;;
   *) echo "usage: $0 [--range <base>...<head> | --all]" >&2; exit 2 ;;
 esac
@@ -49,22 +58,45 @@ esac
 #     日本語のファイル名を使う可能性がある以上、-z でなければ検出漏れになる。
 # --diff-filter=ACMR: Added/Copied/Modified/Renamed のみ。
 #     Deleted を含めると、既に存在しないパスを検査対象にしてしまう
-case "${MODE}" in
-  staged) mapfile -d '' -t staged < <(git diff --cached --name-only -z --diff-filter=ACMR) ;;
-  range)  mapfile -d '' -t staged < <(git diff --name-only -z --diff-filter=ACMR "${RANGE}") ;;
-  all)    mapfile -d '' -t staged < <(git ls-files -z) ;;
-esac
-[ "${#staged[@]}" -gt 0 ] || exit 0
+# 一時ファイルを経由するのは、gitの終了ステータスを捨てないため。
+# `mapfile < <(git ...)` はプロセス置換であり set -e の対象外になる。
+# 解決できない範囲を渡すと git は fatal を出して何も書かないが、
+# 配列が空になるだけでスクリプトは 0 で終了する。
+# = ゲートが緑になって0件しか見ていない状態になり、このモードの意味が消える。
+filelist="$(mktemp)"
+trap 'rm -f "${filelist}"' EXIT
 
-# staged: indexの内容を読む。`git add` 後に作業ツリー側だけ修正されていても、
-#         実際にコミットされるのはindexの内容であるため。
-# range/all: HEADの内容を読む。CIではチェックアウト済みのコミットが検査対象になる。
-read_content() {
+collect_files() {
   case "${MODE}" in
-    staged) git show ":$1" 2>/dev/null || true ;;
-    *)      git show "HEAD:$1" 2>/dev/null || true ;;
+    staged) git diff --cached --name-only -z --diff-filter=ACMR ;;
+    range)  git diff --name-only -z --diff-filter=ACMR "${RANGE}" ;;
+    all)    git ls-files -z ;;
   esac
 }
+
+if ! collect_files > "${filelist}"; then
+  {
+    echo ""
+    echo "検査対象のファイル一覧を取得できなかった (mode=${MODE}${RANGE:+, range=${RANGE}})。"
+    echo "対象を特定できないまま通すと検査が素通りするため中断する。"
+    echo ""
+    echo "CIで --range が解決できない場合、次を疑うこと:"
+    echo "  - actions/checkout の fetch-depth が浅く、base のコミットが取得できていない"
+    echo "  - base ブランチが force-push / rebase され、base.sha が到達不能になった"
+  } >&2
+  exit 1
+fi
+
+mapfile -d '' -t staged < "${filelist}"
+[ "${#staged[@]}" -gt 0 ] || exit 0
+
+# 内容をどの参照から読むか。ファイル一覧の取得元と揃える必要がある。
+#   staged / all : index("")。`git add` 後に作業ツリー側だけ修正されていても、
+#                  実際にコミットされるのはindexの内容であるため。
+#                  all は git ls-files がindexを列挙するので同じ参照になる。
+#   range        : 範囲のhead側。
+REF=""
+[ "${MODE}" = "range" ] && REF="${RANGE_HEAD}"
 
 violations=0
 
@@ -79,12 +111,16 @@ report() {
 #    .gitignore済みだが、`git add -f` や .gitignore の編集で混入しうる
 forbidden=()
 for f in "${staged[@]}"; do
+  # 順序が意味を持つ。
+  # 1) 非公開ディレクトリを最初に判定する。case の * は / にもマッチするため、
+  #    許可リストを先に置くと sns-collector/data/.env.example が
+  #    */.env.example にマッチして検査をすり抜ける。
+  # 2) 次に .env.example / .env.sample を許可する。キーを含まないテンプレートで
+  #    追跡が前提。実キーが書かれた場合は下の「秘匿情報らしき文字列」検査で捕捉する。
+  # 3) 最後に .env 系を禁止する。
   case "${f}" in
-    # .env.example / .env.sample はキーを含まないテンプレートであり、追跡が前提。
-    # 実キーが書かれてしまった場合は、下の「秘匿情報らしき文字列」検査で捕捉する。
-    # ここを .env.* の後ろに置くと先にマッチして誤検知になるため、順序が意味を持つ。
-    .env.example | .env.sample | */.env.example | */.env.sample) continue ;;
     sns-collector/data/* | sns-collector/state/* | sns-collector/reports/*) ;;
+    .env.example | .env.sample | */.env.example | */.env.sample) continue ;;
     .env | .env.* | */.env | */.env.*) ;;
     *) continue ;;
   esac
@@ -132,7 +168,15 @@ patterns=(
 for f in "${staged[@]}"; do
   [ "${f}" = "${SELF}" ] && continue
 
-  content="$(read_content "${f}")"
+  # 読めなかったものを黙って飛ばさない。
+  # 空文字として扱うと、参照の指定ミスで検査対象から外れたことに気づけず、
+  # 「通っているのに何も見ていない」状態を作る。fail-closed にする。
+  if ! git cat-file -e "${REF}:${f}" 2>/dev/null; then
+    report "内容を読めなかった(参照: ${REF:-index}): ${f}"
+    continue
+  fi
+  content="$(git show "${REF}:${f}" 2>/dev/null || true)"
+  # 空ファイルはここで正常にスキップされる(上で存在は確認済み)
   [ -n "${content}" ] || continue
 
   for entry in "${patterns[@]}"; do

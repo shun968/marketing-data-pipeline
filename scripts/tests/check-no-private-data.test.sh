@@ -205,6 +205,44 @@ git commit -qm init
 assert_exit 2 "未知のオプションを拒否する" --unknown
 teardown
 
+# --range の直後にオプションが来るのはタイポ。範囲として解釈すると
+# git が失敗して0件になり、黙って通ってしまう
+setup
+git commit -qm init
+assert_exit 2 "--range の値がオプションなら拒否する" --range --all
+teardown
+
+# 【最重要】gitが失敗したら必ず落ちること。
+# mapfile < <(git ...) はプロセス置換であり set -e の対象外になるため、
+# 解決できない範囲を渡すと fatal を出しつつ 0 で終了する。
+# ゲートが緑になって0件しか見ていない状態になり、このモードの意味が消える。
+setup
+git commit -qm init
+assert_exit 1 "解決できない範囲を渡したら失敗する（黙って通さない）" --range "deadbeef...HEAD"
+teardown
+
+# ファイル一覧は範囲から取るのに内容をHEAD固定で読むと、チェックアウト位置が
+# 範囲headと違う場合に git show が失敗し、空文字として検査対象から外れる
+setup
+git commit -qm init
+base="$(git rev-parse HEAD)"
+printf 'key = "%s%s"\n' 'sk-ant-' "$(printf 'A%.0s' {1..30})" > leaked.py
+git add leaked.py
+git commit -qm leak
+head="$(git rev-parse HEAD)"
+git checkout -q "${base}"
+assert_exit 1 "HEADが範囲headと異なっても範囲内の秘匿情報を検出する" --range "${base}...${head}"
+teardown
+
+# case の * は / にもマッチする。許可リストを非公開ディレクトリより前に置くと
+# sns-collector/data/.env.example が検査1をすり抜ける
+setup
+mkdir -p sns-collector/data
+printf 'GOOGLE_API_KEY=dummy\n' > sns-collector/data/.env.example
+git add -f sns-collector/data/.env.example
+assert_exit 1 "非公開ディレクトリ配下の.env.exampleは許可しない"
+teardown
+
 echo "  ---"
 echo "  成功 ${passed} / 失敗 ${failed}"
 [ "${failed}" -eq 0 ]
