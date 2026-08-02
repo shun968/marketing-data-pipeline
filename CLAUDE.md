@@ -134,6 +134,8 @@ feat(sns-collector): redefine keyword strategy for demand signals (#3)
 | `sns-collector` | ruff check / ruff format --check / pytest |
 | `dashboard` | ruff check / ruff format --check / pytest |
 
+レビューは `.github/workflows/claude-review.yml` が別ワークフローで走らせる（下記「レビュー」）。**このジョブを `required_status_checks` に入れない。** 上限到達によるスキップがそのままマージ不能になる。
+
 **CIとローカルで検査の実装を分けない。** CIのステップはローカルと同じスクリプトを呼ぶだけにする。同じ検査を2箇所に書くと、手元で通ったものがCIで落ちる。
 
 **CIにはステージング領域が無い。** `check-no-private-data.sh` を既定モードのままCIで実行すると対象が常に0件になり、通っているのに何も見ていない状態になる。PRでは `--range <base>...HEAD`、mainへのpushでは `--all` を渡す。
@@ -142,9 +144,11 @@ feat(sns-collector): redefine keyword strategy for demand signals (#3)
 
 ## レビュー
 
-**PRを出したら必ず `/code-review <PR番号> --comment` を実行する。**
+**PR作成・更新のたびに `.github/workflows/claude-review.yml` がヘッドレスでレビューを走らせる。** 認証はサブスクリプションのOAuthトークン（secret `CLAUDE_CODE_OAUTH_TOKEN`、`claude setup-token` で発行）で、モデルは `--model opus` を指定している。
 
-rulesetの `required_review_thread_resolution` は「未解決コメントがあるPR」しか止められない。レビューを走らせなければコメントはゼロで素通りするため、**実行そのものは運用で担保するしかない**。マージ前に必ず実行すること。
+rulesetの `required_review_thread_resolution` は「未解決コメントがあるPR」しか止められない。レビューを走らせなければコメントはゼロで素通りするため、実行そのものをイベント駆動にしてある。
+
+**ただし付与分を使い切るとレビューは走らない。** その場合はワークフローがスキップした旨をPRへコメントするだけで止まる。コメントが付いていたら、マージ前に手元のセッションで `/code-review <PR番号> --comment` を実行すること。この経路だけは運用で担保するしかない。
 
 ### 指摘を閉じる条件
 
