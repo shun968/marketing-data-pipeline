@@ -102,7 +102,7 @@
 | `raw` | JSON | APIレスポンス原文 |
 | `extraction_status` | VARCHAR | `pending` / `batched` / `done` / `skipped` |
 
-**重複排除**: `id` の主キー制約と `INSERT OR IGNORE` により、DB内で完結させる。`SeenStore`（`state/*_seen.json`）は廃止する（ADR-0004）。
+**重複排除**: `id` の主キー制約により、DB内で完結させる。`SeenStore`（`state/*_seen.json`）は廃止する（ADR-0004）。
 
 **`matched_keywords` について**: 同じ投稿が複数キーワードでヒットしうる。中間テーブルを設けず配列カラムとするのは、DuckDBがLIST型を第一級で扱え、`list_contains()` や `unnest()` で十分に検索・集計できるため。
 
@@ -182,12 +182,13 @@
 
 ### 4.2 ロード処理（F-01〜F-04）
 
-1. 対象JSONLを列挙（`--since` 未指定なら最終ロード日以降）
+1. 対象JSONLを列挙（`--since` 未指定なら全件）
 2. 1行ずつパースし、プラットフォーム別アダプタで `posts` の共通形へ正規化
-3. `INSERT OR IGNORE` でバルク投入。`extraction_status` は `pending` で初期化
-4. ロード済みファイルと最終ロード時刻を記録
+3. `ON CONFLICT` でバルク投入。`extraction_status` は `pending` で初期化
 
-**冪等性の担保**: 主キー衝突は無視する。同一ファイルを何度ロードしても結果は同じ。既存投稿の `matched_keywords` は既存値と和集合を取って更新する。
+**冪等性の担保**: 主キー衝突時は既存行を残し、`matched_keywords` だけ既存値との和集合へ更新する。同一ファイルを何度ロードしても件数も内容も変わらない。
+
+**ロード済みファイルを記録しない。** 追跡テーブルを持つと、それと `posts` が乖離したときに「ロードしたのに入っていない」の原因を追えなくなる。判断の材料は `posts` だけにする。ロードが冪等で全件走査が安いため、既定は毎回の全件ロードでよい。`--since` は件数が増えたときの時間短縮に使う。
 
 ### 4.3 抽出バッチ（F-05〜F-08）
 

@@ -193,11 +193,58 @@ uv run sns-collector bluesky
 uv run sns-collector youtube
 ```
 
+## 分析ストア（DuckDB）
+
+収集した投稿は `data/analysis.duckdb` に取り込まれ、SQLで横断検索できる。DuckDBは組み込み型なのでサーバの起動は要らない（ADR-0001）。
+
+```sh
+uv run sns-collector db init            # スキーマ作成・更新
+uv run sns-collector db load            # 収集済みJSONLを取り込む(冪等)
+uv run sns-collector db load --since 2026-08-01
+```
+
+**収集コマンドはDBへ直接書き込む。** 通常運用で `db load` を回す必要はない。使うのは次の場合である。
+
+- DBを削除・破損させたあと、JSONLから作り直すとき
+- 別マシンで収集したJSONLを取り込むとき
+- アダプタを直したあと、過去分に反映するとき
+
+`db load` は何度実行しても結果が変わらない。同じ投稿が複数キーワードで見つかった場合、`matched_keywords` に和集合として足される。
+
+### 重複排除はDBが持つ
+
+以前は `state/{platform}_seen.json`（SeenStore）が既知IDを持ち、60日で捨てていた。現在は `posts` の主キーに一本化してある（ADR-0004）。全期間の投稿IDを保持するため、61日後に同じ投稿を取り直すことがなくなった。
+
+**移行手順**（SeenStoreを使っていた環境のみ）:
+
+```sh
+uv run sns-collector db load    # 収集済みJSONLをDBへ入れる
+rm state/bluesky_seen.json state/youtube_seen.json
+```
+
+JSONLに残っている投稿はすべてDBへ入るため、SeenStoreを読み直す必要はない。ロード後にSeenStoreを消しても、既知判定は失われない。
+
+### バックアップ
+
+DBは単一ファイルなので、コピーで完結する（N-07）。
+
+```sh
+cp data/analysis.duckdb data/analysis.duckdb.$(date +%Y%m%d)
+```
+
+生JSONLが残っている限りDBは作り直せるが、Phase 2以降に入る抽出結果（`insights`）はClaude Codeセッションを使って生成するため、失うと再生成にコストがかかる。週次でのバックアップを推奨する。
+
+### 収集済みデータのフィールドについて
+
+`author_did` / `lang` / `raw` は2026-08-02に追加した。それ以前に収集したJSONLにこれらは無く、DB上では `NULL` になる。過去分は取り直せない（Blueskyの検索は最新のインデックスしか返さない）。
+
 ## 出力
 
 `data/{bluesky,youtube}/<YYYY-MM-DD>.jsonl`に1行1JSONで追記される（同日内の複数回実行は同一ファイルに追記）。
 
-run跨ぎの重複を避けるため、既知の投稿ID/動画IDは`state/{bluesky,youtube}_seen.json`に永続化される（60日経過したエントリは自動的に破棄）。同じキーワードで再実行しても、既に収集済みの投稿・動画は再度JSONLに書き込まれない。
+run跨ぎの重複を避けるため、収集した投稿は同時に`data/analysis.duckdb`の`posts`へ書き込まれ、次回以降はそこを既知判定に使う（[分析ストア](#分析ストアduckdb)を参照）。同じキーワードで再実行しても、既に収集済みの投稿・動画は再度JSONLに書き込まれない。
+
+既知の投稿が別のキーワードでも見つかった場合、JSONLには書かれないが`posts.matched_keywords`へその語が追加される。どの語が効いているかはキーワード改訂の判断材料になる。
 
 ## 定期実行(cron)
 

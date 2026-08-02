@@ -44,10 +44,10 @@ def test_run_writes_new_videos_and_skips_duplicates(tmp_path: Path):
         keywords=["新規事業 アイデア"],
     )
     data_dir = tmp_path / "data"
-    state_path = tmp_path / "state" / "youtube_seen.json"
+    db_path = tmp_path / "data" / "analysis.duckdb"
 
     with patch("sns_collector.youtube.search.search_videos", return_value=[FAKE_ITEM]):
-        youtube_search.run(config, data_dir=data_dir, state_path=state_path)
+        youtube_search.run(config, data_dir=data_dir, db_path=db_path)
 
     output_files = list(data_dir.glob("*.jsonl"))
     assert len(output_files) == 1
@@ -59,7 +59,7 @@ def test_run_writes_new_videos_and_skips_duplicates(tmp_path: Path):
     assert record["url"] == "https://www.youtube.com/watch?v=abc123XYZ"
 
     with patch("sns_collector.youtube.search.search_videos", return_value=[FAKE_ITEM]):
-        youtube_search.run(config, data_dir=data_dir, state_path=state_path)
+        youtube_search.run(config, data_dir=data_dir, db_path=db_path)
 
     lines_after = output_files[0].read_text(encoding="utf-8").splitlines()
     assert len(lines_after) == 1
@@ -72,7 +72,7 @@ def test_failed_keyword_does_not_discard_other_results(tmp_path: Path):
     ここで落とすと消費済みクオータまで無駄になる。
     """
     data_dir = tmp_path / "data"
-    state_path = tmp_path / "state" / "youtube_seen.json"
+    db_path = tmp_path / "data" / "analysis.duckdb"
 
     def fake_search(_api_key, keyword, *_args):
         if keyword == "失敗する語":
@@ -81,19 +81,19 @@ def test_failed_keyword_does_not_discard_other_results(tmp_path: Path):
 
     with patch("sns_collector.youtube.search.search_videos", side_effect=fake_search):
         youtube_search.run(
-            _config(["成功する語", "失敗する語"]), data_dir=data_dir, state_path=state_path
+            _config(["成功する語", "失敗する語"]), data_dir=data_dir, db_path=db_path
         )
 
     output_files = list(data_dir.glob("*.jsonl"))
     assert len(output_files) == 1
     assert len(output_files[0].read_text(encoding="utf-8").splitlines()) == 1
-    assert state_path.exists(), "SeenStoreが保存されていない"
+    assert db_path.exists(), "分析DBが作られていない"
 
 
 def test_unexpected_exception_does_not_discard_saved_results(tmp_path: Path):
     """想定外の例外がrunを貫通しても、それ以前の収集結果は保存済みでなければならない。"""
     data_dir = tmp_path / "data"
-    state_path = tmp_path / "state" / "youtube_seen.json"
+    db_path = tmp_path / "data" / "analysis.duckdb"
 
     def fake_search(_api_key, keyword, *_args):
         if keyword == "壊れる語":
@@ -104,9 +104,7 @@ def test_unexpected_exception_does_not_discard_saved_results(tmp_path: Path):
         patch("sns_collector.youtube.search.search_videos", side_effect=fake_search),
         pytest.raises(RuntimeError),
     ):
-        youtube_search.run(
-            _config(["成功する語", "壊れる語"]), data_dir=data_dir, state_path=state_path
-        )
+        youtube_search.run(_config(["成功する語", "壊れる語"]), data_dir=data_dir, db_path=db_path)
 
     output_files = list(data_dir.glob("*.jsonl"))
     assert len(output_files) == 1, "例外の前に収集した分がディスクに書かれていない"
@@ -116,7 +114,7 @@ def test_unexpected_exception_does_not_discard_saved_results(tmp_path: Path):
 def test_malformed_item_is_skipped_without_losing_others(tmp_path: Path):
     """必須フィールドを欠く動画があっても、その1件だけを捨てて処理を続ける。"""
     data_dir = tmp_path / "data"
-    state_path = tmp_path / "state" / "youtube_seen.json"
+    db_path = tmp_path / "data" / "analysis.duckdb"
 
     broken_item = {k: v for k, v in FAKE_ITEM.items() if k != "id"}
     other_item = {**FAKE_ITEM, "id": {"videoId": "other456"}}
@@ -125,7 +123,7 @@ def test_malformed_item_is_skipped_without_losing_others(tmp_path: Path):
         "sns_collector.youtube.search.search_videos",
         return_value=[broken_item, FAKE_ITEM, other_item],
     ):
-        youtube_search.run(_config(["キーワード"]), data_dir=data_dir, state_path=state_path)
+        youtube_search.run(_config(["キーワード"]), data_dir=data_dir, db_path=db_path)
 
     output_files = list(data_dir.glob("*.jsonl"))
     assert len(output_files) == 1

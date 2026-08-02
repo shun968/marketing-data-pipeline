@@ -16,6 +16,7 @@ class YouTubeVideo:
     published_at: str
     url: str
     collected_at: str
+    raw: dict[str, Any]
 
     @classmethod
     def from_item(cls, item: dict[str, Any], keyword: str, collected_at: datetime) -> YouTubeVideo:
@@ -32,6 +33,9 @@ class YouTubeVideo:
             published_at=snippet.get("publishedAt", ""),
             url=f"https://www.youtube.com/watch?v={video_id}",
             collected_at=collected_at.isoformat(),
+            # サムネイル・ライブ配信フラグ等、平坦化で落ちる情報を残す。
+            # 収集し直しはクォータを食うため、取れるうちに保存する（F-02）
+            raw=item,
         )
 
     def to_dict(self) -> dict:

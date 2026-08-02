@@ -12,6 +12,8 @@ class BlueskyPost:
     text: str
     author_handle: str
     author_display_name: str
+    author_did: str
+    lang: list[str]
     like_count: int
     repost_count: int
     reply_count: int
@@ -19,6 +21,7 @@ class BlueskyPost:
     indexed_at: str
     url: str
     collected_at: str
+    raw: dict[str, Any]
 
     @classmethod
     def from_post(cls, post: dict[str, Any], keyword: str, collected_at: datetime) -> BlueskyPost:
@@ -34,6 +37,9 @@ class BlueskyPost:
             text=record.get("text", ""),
             author_handle=handle,
             author_display_name=author.get("displayName", ""),
+            # ハンドルは改名で変わる。DIDは変わらないため、著者の同一性はこちらで見る
+            author_did=author.get("did", ""),
+            lang=record.get("langs", []),
             like_count=post.get("likeCount", 0),
             repost_count=post.get("repostCount", 0),
             reply_count=post.get("replyCount", 0),
@@ -41,6 +47,9 @@ class BlueskyPost:
             indexed_at=post.get("indexedAt", ""),
             url=f"https://bsky.app/profile/{handle}/post/{rkey}",
             collected_at=collected_at.isoformat(),
+            # 平坦化で落ちた情報（埋め込みカード・返信先・facets等）を後から使えるように残す。
+            # 収集し直しは効かないため、取れるものは取れるうちに保存する（F-02）
+            raw=post,
         )
 
     def to_dict(self) -> dict:
