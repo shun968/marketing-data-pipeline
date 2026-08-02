@@ -74,6 +74,12 @@ jobs:
       - name: repo conventions
         run: ./scripts/check-repo-conventions.sh
 
+      # 規約の書き写しを検出する。
+      # 対になる rule-consolidation は人へ聞く承認フローで、CIには端末が無いため
+      # ローカルのpre-commitにしか存在しない。機械で判定できる側だけがここに来る
+      - name: doc duplication
+        run: ./scripts/check-doc-duplication.sh
+
   sns-collector:
     name: sns-collector
     runs-on: ubuntu-latest

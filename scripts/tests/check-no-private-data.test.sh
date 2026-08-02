@@ -14,9 +14,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SCRIPT="${REPO_ROOT}/scripts/check-no-private-data.sh"
 
-passed=0
-failed=0
-workdir=""
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 setup() {
   workdir="$(mktemp -d)"
@@ -31,8 +29,7 @@ setup() {
 }
 
 teardown() {
-  cd /
-  [ -n "${workdir}" ] && rm -rf "${workdir}"
+  cleanup_workdir
 }
 
 # assert_exit <期待する終了コード> <ケース名> [スクリプトへの引数...]
@@ -41,11 +38,9 @@ assert_exit() {
   shift 2
   ./scripts/check-no-private-data.sh "$@" > /dev/null 2>&1 || actual=$?
   if [ "${actual}" -eq "${expected}" ]; then
-    echo "  ok   ${name}"
-    passed=$((passed + 1))
+    pass "${name}"
   else
-    echo "  FAIL ${name}（期待: ${expected} / 実際: ${actual}）"
-    failed=$((failed + 1))
+    fail "${name}" "${expected}" "${actual}"
   fi
 }
 
@@ -243,6 +238,4 @@ git add -f sns-collector/data/.env.example
 assert_exit 1 "非公開ディレクトリ配下の.env.exampleは許可しない"
 teardown
 
-echo "  ---"
-echo "  成功 ${passed} / 失敗 ${failed}"
-[ "${failed}" -eq 0 ]
+suite_end

@@ -58,11 +58,9 @@ esac
 #     日本語のファイル名を使う可能性がある以上、-z でなければ検出漏れになる。
 # --diff-filter=ACMR: Added/Copied/Modified/Renamed のみ。
 #     Deleted を含めると、既に存在しないパスを検査対象にしてしまう
-# 一時ファイルを経由するのは、gitの終了ステータスを捨てないため。
-# `mapfile < <(git ...)` はプロセス置換であり set -e の対象外になる。
-# 解決できない範囲を渡すと git は fatal を出して何も書かないが、
-# 配列が空になるだけでスクリプトは 0 で終了する。
-# = ゲートが緑になって0件しか見ていない状態になり、このモードの意味が消える。
+# 一時ファイル経由にする理由は scripts/check-shell-idioms.sh のルール2を参照。
+# ここでは特に、解決できない範囲を --range へ渡したときに効く。
+# 対象0件のまま緑になると、混入検査そのものが無効になる。
 filelist="$(mktemp)"
 trap 'rm -f "${filelist}"' EXIT
 
@@ -132,10 +130,26 @@ done
 #    上のパターンに列挙し忘れた対象も、この汎用チェックで捕捉できる。
 #    --no-index: 追跡済みかどうかに関わらず「無視ルールに合致するか」で判定する
 #                (これが無いと、一度コミットされてしまったファイルを検出できない)
-#    check-ignore は該当なしのとき終了コード1を返すため `|| true` が要る
-mapfile -d '' -t ignored < <(
-  printf '%s\0' "${staged[@]}" | git check-ignore -z --stdin --no-index 2>/dev/null || true
-)
+#    check-ignore の終了コードは 0=該当あり / 1=該当なし / それ以外=エラー。
+#    `|| true` で一括して握り潰すと、本当のエラー(引数不正・リポジトリ破損)まで
+#    「該当なし」と同じ扱いになり、0件で素通りする。1だけを許容する。
+#
+#    プロセス置換ではなく一時ファイルを経由するのも同じ理由で、
+#    `< <(...)` の中は set -e の対象外になる
+ignored_list="$(mktemp)"
+trap 'rm -f "${filelist}" "${ignored_list}"' EXIT
+
+check_ignore_status=0
+printf '%s\0' "${staged[@]}" \
+  | git check-ignore -z --stdin --no-index > "${ignored_list}" 2>/dev/null \
+  || check_ignore_status=$?
+
+if [ "${check_ignore_status}" -gt 1 ]; then
+  echo "git check-ignore が異常終了した (${check_ignore_status})。検査が不完全なため中断する。" >&2
+  exit 1
+fi
+
+mapfile -d '' -t ignored < "${ignored_list}"
 for f in "${ignored[@]}"; do
   duplicate=0
   for g in "${forbidden[@]-}"; do

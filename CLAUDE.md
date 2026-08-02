@@ -35,8 +35,11 @@ scripts/                  リポジトリ共通スクリプト（規約チェッ
   check-adr-format.sh       ADRの書式検査（pre-commit）
   check-shell-idioms.sh     過去に事故を起こしたシェルの書き方を検出（pre-commit / CI）
   check-repo-conventions.sh 規約を守る仕組みが在るかの検査（pre-commit / CI）
+  check-doc-duplication.sh  規約の書き写しの検出（pre-commit / CI）
+  check-rule-consolidation.sh 統合整理の確認。人へ聞く（pre-commit のみ）
   lint-scripts.sh           シェル・YAMLの静的検査（pre-commit / CI）
   tests/                    検査スクリプトの回帰テスト。`task test-check-scripts`
+    lib.sh                  各テストの共通処理（setup / 集計 / アサーション）
 lefthook.yml              gitフックの登録。規約の強制はここに集約する
 sns-collector/            収集ツール（Python 3.11+ / uv）
   CLAUDE.md               ← この領域の規約・開発コマンドはこちら
@@ -66,11 +69,25 @@ Taskfile.yml              開発タスク（lint / GitHub設定）
 | シェル・YAMLの静的検査 | lefthook pre-commit と CI `guards` → `scripts/lint-scripts.sh` | shellcheck / `.yamllint.yml` |
 | 過去に事故を起こしたシェルの書き方 | 同上 → `scripts/check-shell-idioms.sh` | 同スクリプトの先頭コメント |
 | 検査スクリプトのテスト同伴・列挙の重複 | lefthook pre-commit と CI `guards` → `scripts/check-repo-conventions.sh` | 同スクリプトの先頭コメント |
+| 規約の書き写し | lefthook pre-commit と CI `guards` → `scripts/check-doc-duplication.sh` | 同スクリプトの先頭コメント |
+| 規約を足したときの統合整理 | lefthook pre-commit の承認フロー → `scripts/check-rule-consolidation.sh` | 同スクリプトの先頭コメント |
 
 - 領域固有の規約は各ディレクトリの `CLAUDE.md` に置く（例: `sns-collector/CLAUDE.md`）
 - 作業手順は `.claude/skills/` に置く。該当する作業に入ったらスキルに従う
 - **検査を追加したらこの表に行を足し、ドキュメント側の重複記述を消す**
 - 検査スクリプトを変更したら `scripts/tests/` に回帰テストを足す。**「検知できること」と同じ重みで「誤検知しないこと」をテストする。** 誤検知は `--no-verify` の常用を招き、ゲートを無効化する
+
+### 機械検査と承認フローの使い分け
+
+判定に意図が要るものを正規表現で近似すると、誤検知が増えてゲートごと無効化される。**文字列で判定できるものは検査に、できないものは人への確認に落とす。**
+
+| | 機械検査 | 承認フロー |
+|---|---|---|
+| 判定 | 文字列・構造で決まる | 意図を読む必要がある |
+| 例 | 同じ文が2ファイルにある | この規約は既存のどれかに畳めるか |
+| 失敗の形 | 誤検知で無関係なコミットが止まる | 質問が多すぎて反射的に承認される |
+
+承認フローは**発火条件を絞ることが要件**である。何にでも掛けると承認が形骸化し、機械検査より弱くなる。追加する際は、聞かないケースを聞くケースと同じ数だけテストに書く。
 
 コミットメッセージの形（body・footerは空、件名末尾にissue参照）:
 
@@ -84,7 +101,7 @@ feat(sns-collector): redefine keyword strategy for demand signals (#3)
 
 | ジョブ | 内容 |
 |---|---|
-| `guards` | シェル・YAMLの静的検査 / 禁止イディオム / リポジトリ規約 / 検査スクリプトの回帰テスト / 収集データ・秘匿情報の混入検査 / ADR書式 |
+| `guards` | シェル・YAMLの静的検査 / 禁止イディオム / リポジトリ規約 / 規約の書き写し / 検査スクリプトの回帰テスト / 収集データ・秘匿情報の混入検査 / ADR書式 |
 | `sns-collector` | ruff check / ruff format --check / pytest |
 
 **CIとローカルで検査の実装を分けない。** CIのステップはローカルと同じスクリプトを呼ぶだけにする。同じ検査を2箇所に書くと、手元で通ったものがCIで落ちる。

@@ -18,9 +18,8 @@ given=("$@")
 if [ "${#given[@]}" -eq 0 ]; then
   # -z: 非ASCIIパスがクォートされて検査対象から外れるのを防ぐ
   #
-  # 一時ファイルを経由するのはgitの終了ステータスを捨てないため。
-  # `mapfile < <(git ...)` はプロセス置換で set -e の対象外になり、
-  # gitが失敗しても配列が空になるだけで「対象なし」と表示して0で終わる
+  # プロセス置換ではなく一時ファイルを経由する理由は
+  # scripts/check-shell-idioms.sh のルール2が出すメッセージを参照
   staged_list="$(mktemp)"
   trap 'rm -f "${staged_list}"' EXIT
 
