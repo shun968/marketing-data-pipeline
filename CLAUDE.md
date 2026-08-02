@@ -63,25 +63,14 @@ Taskfile.yml              開発タスク（lint / GitHub設定）
 
 ## 規約
 
-**規約は1箇所にしか書かない。機械的に検査できるものは仕組みを正とし、ドキュメントには「何がどこで強制されるか」だけを置く。** 同じ内容が複数箇所にあると、必ず更新漏れが起きて食い違う。
+**規約は1箇所にしか書かない。機械的に適用されるものは実装を正とし、ドキュメントに書き写さない。** 一覧をここに持つと、実装と一覧の二重管理になって必ず食い違う。
 
-| 対象 | 強制する仕組み | 規約の詳細 |
-|---|---|---|
-| 収集データ・秘匿情報の混入 | lefthook pre-commit と `git add` 直後のhook → `scripts/check-no-private-data.sh` | 上の「最重要ルール」 |
-| ADRの書式・ステータス | lefthook pre-commit と編集直後のhook → `scripts/check-adr-format.sh` | `adr` スキル |
-| コミットメッセージ | lefthook commit-msg → commitlint | `commitlint.config.js` |
-| Pythonのlint・フォーマット | ruff（CI `sns-collector`） | `sns-collector/pyproject.toml` |
-| シェル・YAMLの静的検査 | lefthook pre-commit と CI `guards` → `scripts/lint-scripts.sh` | shellcheck / `.yamllint.yml` |
-| 過去に事故を起こしたシェルの書き方 | 同上 → `scripts/check-shell-idioms.sh` | 同スクリプトの先頭コメント |
-| 検査スクリプトのテスト同伴・列挙の重複 | lefthook pre-commit と CI `guards` → `scripts/check-repo-conventions.sh` | 同スクリプトの先頭コメント |
-| 規約の書き写し | lefthook pre-commit と CI `guards` → `scripts/check-doc-duplication.sh` | 同スクリプトの先頭コメント |
-| 規約を足したときの統合整理 | lefthook pre-commit の承認フロー → `scripts/check-rule-consolidation.sh` | 同スクリプトの先頭コメント |
-| 違反出力のルールID・検査の記録漏れ | lefthook pre-commit と CI `guards` → `scripts/check-repo-conventions.sh` | `scripts/record-check.sh` の先頭コメント |
-
-- 領域固有の規約は各ディレクトリの `CLAUDE.md` に置く（例: `sns-collector/CLAUDE.md`）
+- 何がどこで強制されるかは `lefthook.yml` と `.github/workflows/` を読む。**一覧をここに転記しない**
+- 各検査が何を見ているか・なぜ在るかは、スクリプト先頭のコメントに書く
 - 作業手順は `.claude/skills/` に置く。該当する作業に入ったらスキルに従う
-- **検査を追加したらこの表に行を足し、ドキュメント側の重複記述を消す**
 - 検査スクリプトを変更したら `scripts/tests/` に回帰テストを足す。**「検知できること」と同じ重みで「誤検知しないこと」をテストする。** 誤検知は `--no-verify` の常用を招き、ゲートを無効化する
+
+**ここに残すのは実装が語れないものだけ。** 判断の基準、機械化できなかった理由、仕組みが破れたときに人がやること。以下がそれにあたる。
 
 ### 機械検査と承認フローの使い分け
 
