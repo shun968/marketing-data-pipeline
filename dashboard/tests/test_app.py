@@ -143,6 +143,18 @@ def test_未完了の実行が画面に出る(client, repo: Path) -> None:
     assert "HTTPエラー: 403" in body
 
 
+def test_壊れたリンクがレポート配下にあっても画面が落ちない(client, repo: Path) -> None:
+    # ルート内を指す壊れたリンクで stat() が例外を投げ、
+    # レポート一覧を読む /reports と / がまとめて500になっていた
+    directory = repo / "sns-collector" / "reports"
+    directory.mkdir(parents=True)
+    write(directory / "normal.md", "# 通常")
+    (directory / "broken.md").symlink_to(directory / "missing.md")
+
+    for route in ["/", "/reports"]:
+        assert client.get(route).status_code == 200, route
+
+
 def test_ゲート一覧にフック名が出る(client, repo: Path) -> None:
     write(
         repo / "lefthook.yml",

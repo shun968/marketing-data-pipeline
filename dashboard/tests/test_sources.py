@@ -146,6 +146,49 @@ def test_フックごとに実行場所を出し分ける(repo: Path) -> None:
     }
 
 
+# 2周目の指摘。名前を持たないジョブが2つ以上並ぶと、2つ目以降が
+# 現在のジョブへ吸収されて消え、interactive も前のゲートへ漏れていた。
+# 名前つきの経路だけを直しても、この経路には残る
+def test_名前を持たないジョブが2つ以上でも消えない(repo: Path) -> None:
+    write(
+        repo / "lefthook.yml",
+        "pre-commit:\n"
+        "  jobs:\n"
+        "    - run: ./scripts/check-a.sh\n"
+        "    - run: ./scripts/check-b.sh\n"
+        "      interactive: true\n",
+    )
+    gates = rules.load_gates()
+    assert [g.command for g in gates] == ["./scripts/check-a.sh", "./scripts/check-b.sh"]
+    # 印は2つ目のジョブのもの。前へ漏らさない
+    assert [g.interactive for g in gates] == [False, True]
+
+
+def test_名前を持たないジョブはコマンドを名前にする(repo: Path) -> None:
+    write(
+        repo / "lefthook.yml",
+        "pre-commit:\n  jobs:\n    - run: ./scripts/check-a.sh\n",
+    )
+    assert rules.load_gates()[0].name == "./scripts/check-a.sh"
+
+
+# 2周目の指摘。`\S+` だと空白入りの名前がジョブの境界にならず、
+# 名前がコマンドで置き換わったうえ、2つ並ぶと片方が消えていた
+def test_空白を含むジョブ名を扱える(repo: Path) -> None:
+    write(
+        repo / "lefthook.yml",
+        "pre-commit:\n"
+        "  jobs:\n"
+        "    - name: check scripts\n"
+        "      run: ./scripts/check-a.sh\n"
+        "    - name: lint yaml\n"
+        "      run: ./scripts/lint-b.sh\n",
+    )
+    gates = rules.load_gates()
+    assert [g.name for g in gates] == ["check scripts", "lint yaml"]
+    assert [g.script for g in gates] == ["./scripts/check-a.sh", "./scripts/lint-b.sh"]
+
+
 def test_承認フローの印が次のジョブへ漏れない(repo: Path) -> None:
     write(
         repo / "lefthook.yml",
@@ -305,6 +348,53 @@ def test_キーワード実績は新規の少ない順(repo: Path) -> None:
     rows = reports.keyword_summary(reports.list_collector_logs())
     assert rows[0]["keyword"] == "空振り"
     assert rows[0]["added"] == 0
+
+
+# 2周目の指摘。resolve_within はルート外を弾くが、ルート内を指す
+# 壊れたリンクは通す。その後の stat() が例外を投げ、
+# レポート一覧を読む /reports と / がまとめて500になっていた
+def test_ルート内で切れたリンクがあっても一覧が壊れない(repo: Path) -> None:
+    directory = repo / "sns-collector" / "reports"
+    directory.mkdir(parents=True)
+    write(directory / "normal.md", "# 通常")
+    (directory / "broken.md").symlink_to(directory / "missing.md")
+
+    assert [r.slug for r in reports.list_reports()] == ["normal.md"]
+
+
+def test_収集ログが消えても一覧が壊れない(repo: Path) -> None:
+    directory = repo / "sns-collector" / "state" / ".logs"
+    directory.mkdir(parents=True)
+    (directory / "dangling.log").symlink_to(directory / "missing.log")
+    write(directory / "ok.log", "[2026-08-01T09:00:00+09:00] start: ok\n")
+
+    assert [log.platform for log in reports.list_collector_logs()] == ["ok"]
+
+
+# 2周目の指摘。集計を全行にしたため毎リクエストで全文を読む。
+# cron_run.sh は追記のみでローテートしないため、上限が無い
+def test_ログのパース結果を再利用する(repo: Path) -> None:
+    path = repo / "sns-collector" / "state" / ".logs" / "x.log"
+    write(
+        path,
+        "[2026-08-01T09:00:00+09:00] start: x\n"
+        "[x:語] 取得: 1件 / 新規: 0件 / スキップ: 1件\n"
+        "[2026-08-01T09:00:30+09:00] done: x\n",
+    )
+    first = reports.list_collector_logs()[0].runs
+    second = reports.list_collector_logs()[0].runs
+    assert first is second
+
+
+def test_追記されたログは読み直す(repo: Path) -> None:
+    # キャッシュが古い結果を返し続けると、収集が止まったように見える
+    path = repo / "sns-collector" / "state" / ".logs" / "x.log"
+    write(path, "[2026-08-01T09:00:00+09:00] start: x\n")
+    assert len(reports.list_collector_logs()[0].runs) == 1
+
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write("[2026-08-01T12:00:00+09:00] start: x\n")
+    assert len(reports.list_collector_logs()[0].runs) == 2
 
 
 # 指摘6の回帰。本文は404で拒否されるので、一覧にだけ残ると
