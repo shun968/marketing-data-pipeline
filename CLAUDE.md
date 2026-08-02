@@ -20,7 +20,7 @@ sns-collector/.env      APIキー                  ← 絶対にコミットし�
 
 これは `scripts/check-no-private-data.sh` が pre-commit（lefthook）で機械的に検査する。**`--no-verify` で迂回しない。** 一度pushした内容は履歴を書き換えても取り消しきれない。
 
-埋め込み生成はローカルモデルで行い、外部APIへ投稿本文を送信しない（ADR-0002）。例外は2つで、どちらもAnthropicへ渡る。構造化抽出（Claude Codeセッションへ投稿本文）と、CIの自動レビュー（PRの差分＝リポジトリのソース）である。いずれもADR-0003に根拠がある。この線引きを勝手に動かさない。
+埋め込み生成はローカルモデルで行い、外部APIへ投稿本文を送信しない（ADR-0002）。唯一の例外は構造化抽出で、Claude Codeセッション経由で投稿本文がAnthropicへ送信される（ADR-0003）。この線引きを勝手に動かさない。
 
 ### パイプラインからLLM APIを呼ばない
 
@@ -123,8 +123,6 @@ feat(sns-collector): redefine keyword strategy for demand signals (#3)
 | `sns-collector` | ruff check / ruff format --check / pytest |
 | `dashboard` | ruff check / ruff format --check / pytest |
 
-レビューは `.github/workflows/claude-review.yml` が別ワークフローで走らせる（下記「レビュー」）。**このジョブを `required_status_checks` に入れない。** 上限到達によるスキップがそのままマージ不能になる。
-
 **CIとローカルで検査の実装を分けない。** CIのステップはローカルと同じスクリプトを呼ぶだけにする。同じ検査を2箇所に書くと、手元で通ったものがCIで落ちる。
 
 **CIにはステージング領域が無い。** `check-no-private-data.sh` を既定モードのままCIで実行すると対象が常に0件になり、通っているのに何も見ていない状態になる。PRでは `--range <base>...HEAD`、mainへのpushでは `--all` を渡す。
@@ -133,11 +131,11 @@ feat(sns-collector): redefine keyword strategy for demand signals (#3)
 
 ## レビュー
 
-**PR作成・更新のたびに `.github/workflows/claude-review.yml` がヘッドレスでレビューを走らせる。** 認証はサブスクリプションのOAuthトークン（secret `CLAUDE_CODE_OAUTH_TOKEN`、`claude setup-token` で発行）で、モデルは `--model opus` を指定している。
+**PRを出したら必ず `/code-review <PR番号> --comment` を実行する。**
 
-rulesetの `required_review_thread_resolution` は「未解決コメントがあるPR」しか止められない。レビューを走らせなければコメントはゼロで素通りするため、実行そのものをイベント駆動にしてある。
+rulesetの `required_review_thread_resolution` は「未解決コメントがあるPR」しか止められない。レビューを走らせなければコメントはゼロで素通りするため、**実行そのものは運用で担保するしかない**。マージ前に必ず実行すること。
 
-**レビューが走らない条件はいくつもある**（付与分の超過、トークンの失効、ワークフロー自体を変更したPR）。ワークフローは終了状態ではなく**実行された形跡の有無**で判定し、走らなかった場合はその旨をPRへコメントする。コメントが付いていたら、マージ前に手元のセッションで `/code-review <PR番号> --comment` を実行すること。この最後の一手だけは運用で担保するしかない。
+**CIでの自動実行は試して撤回した。** 動作はしたが、対話セッションの定額枠ではなく利用クレジット（メーター課金）を消費し、1回あたり$5規模だった。根拠と実測値は ADR-0003 にある。**同じ理由で再挑戦しない。**
 
 ### 指摘を閉じる条件
 

@@ -191,58 +191,6 @@ tasks:
 
         echo "デフォルトのgithub setting完了"
 
-  setup-github-claude-review:
-    desc: PR自動レビュー(claude-review)の認証情報を登録する
-    summary: |
-      前提: gh CLIでログイン済み、対象リポジトリへのadmin権限があること
-
-      .github/workflows/claude-review.yml が使う認証を用意する。
-      ワークフローだけ置いても、GitHub App と secret が無ければ毎回失敗し、
-      手動レビューを促すコメントが出るだけになる。
-
-      手順:
-        1. Claude GitHub App をリポジトリへ入れる
-             https://github.com/apps/claude
-           要求される権限は Contents / Issues / Pull requests の read & write。
-           ブラウザでの承認が要るため、このタスクからは実行できない。
-
-        2. 手元で長期トークンを発行する
-             claude setup-token
-           ブラウザでOAuthフローを通すと、トークンが端末へ表示される。
-
-        3. このタスクを実行し、プロンプトへそのトークンを貼り付ける
-
-      API keyではなくOAuthトークンを使う理由:
-        anthropic_api_key を使うと従量課金になる。サブスクリプションに
-        付与される分で回すため、claude_code_oauth_token を選んでいる。
-        付与分を使い切った場合はレビューが走らないが、ワークフロー側で
-        受け止めてCIは緑のままにしてある。
-
-      `gh secret set --body` を使わない理由:
-        引数で渡すとシェル履歴にトークンが残る。対話プロンプトは入力を
-        伏せ字にし、履歴にも残さない。
-
-      secret名とスコープについて:
-        名前は claude-review.yml の参照名と一致させること。ずれても
-        ワークフローは失敗せず、空の認証で実行されて毎回スキップになる。
-
-        Repository secret に置くこと。claude-review.yml は environment: を
-        指定していないため、Environment secret は解決されず空になる。
-
-      トークンを入れ直すとき:
-        期限切れやrevoke後は同じ手順でよい。secretは上書きできる。
-        レビューが走らなくなったら、まずPRに付くスキップコメントを見ること。
-
-      使い方: task setup-github-claude-review [REPO=owner/repo]
-        REPO省略時はカレントディレクトリのリポジトリを対象にする
-    interactive: true
-    cmds:
-      - |
-        set -euo pipefail
-        echo "claude setup-token が出力したトークンを貼り付ける"
-        gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo {{.REPO}}
-        gh secret list --repo {{.REPO}}
-
   lint:
     desc: 各プロジェクト(package.jsonにlintスクリプトを持つ直下のディレクトリ)でlintを実行する
     summary: |
