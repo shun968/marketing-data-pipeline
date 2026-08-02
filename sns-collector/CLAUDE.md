@@ -31,12 +31,9 @@ cronで3時間おきに自動収集される（`scripts/cron_run.sh`。flockで�
 
 ## コード
 
-- Python 3.11以上。`from __future__ import annotations` を先頭に置く
-- lint・フォーマットは ruff に従う（設定は `pyproject.toml`。ここには書き写さない）
-- 型ヒントを付ける。dataclassは `frozen=True` を既定とする
-- コメント・docstring・ログ出力は日本語で書く（既存コードに合わせる）
-- コメントは「コードが示せない制約」を書く時だけ。次の行が何をするかの説明は書かない
-- **ログに投稿本文やAPIキーを出さない**
+Pythonの共通の書き方はルートの `CLAUDE.md` にある。この領域に固有なのは次の1点。
+
+- **ログに投稿本文やAPIキーを出さない**（ログ出力も日本語で書く）
 
 ## テスト
 

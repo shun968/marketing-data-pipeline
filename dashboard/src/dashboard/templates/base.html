@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}モニタリング{% endblock %} — marketing-data-pipeline</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="/">marketing-data-pipeline</a>
+  <nav>
+    <a href="/" class="{{ 'on' if nav == 'overview' }}">概況</a>
+    <a href="/rules" class="{{ 'on' if nav == 'rules' }}">開発ルール</a>
+    <a href="/adr" class="{{ 'on' if nav == 'adr' }}">ADR</a>
+    <a href="/reports" class="{{ 'on' if nav == 'reports' }}">レポート</a>
+    <a href="/metrics" class="{{ 'on' if nav == 'metrics' }}">メトリクス</a>
+  </nav>
+  <span class="root" title="{{ repo_root }}">ローカル</span>
+</header>
+<main>
+{% block content %}{% endblock %}
+</main>
+<footer>
+  <p>収集データを読むためローカル(127.0.0.1)に閉じている。外部へ公開しないこと。</p>
+</footer>
+</body>
+</html>

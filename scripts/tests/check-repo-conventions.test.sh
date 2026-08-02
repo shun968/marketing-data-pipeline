@@ -138,4 +138,85 @@ printf 'pre-commit:\n  jobs:\n    - run: ./scripts/tests/foo.test.sh\n' > leftho
 assert_exit 0 "誤検知しない: 未stagedの作業ツリー変更"
 teardown
 
+# --- 4. 違反出力のルールID ---
+
+# ルールIDが無いと、可変の文言やファイル名が集計キーになって推移が読めない
+setup
+{
+  echo '#!/usr/bin/env bash'
+  echo 'echo "NG: 何かがおかしい" >&2'
+} > scripts/check-something.sh
+echo '#!/usr/bin/env bash' > scripts/tests/check-something.test.sh
+git add -A
+assert_exit 1 "検知: 違反出力にルールIDが無い"
+teardown
+
+setup
+{
+  echo '#!/usr/bin/env bash'
+  echo 'echo "NG: [some-rule] 何かがおかしい" >&2'
+} > scripts/check-something.sh
+echo '#!/usr/bin/env bash' > scripts/tests/check-something.test.sh
+git add -A
+assert_exit 0 "誤検知しない: ルールIDがある"
+teardown
+
+# ルールの解説そのものを弾くと、検査器に背景が書けなくなる
+setup
+{
+  echo '#!/usr/bin/env bash'
+  echo '# 違反は "NG: 種別" ではなく "NG: [id] 種別" の形で出すこと'
+  echo 'echo "NG: [some-rule] 何かがおかしい" >&2'
+} > scripts/check-something.sh
+echo '#!/usr/bin/env bash' > scripts/tests/check-something.test.sh
+git add -A
+assert_exit 0 "誤検知しない: コメント行のNG表記"
+teardown
+
+# lint系は shellcheck などの書式をそのまま流すため、この規約の対象外
+setup
+{
+  echo '#!/usr/bin/env bash'
+  echo 'echo "NG: ルールIDの無い出力" >&2'
+} > scripts/lint-something.sh
+echo '#!/usr/bin/env bash' > scripts/tests/lint-something.test.sh
+git add -A
+assert_exit 0 "誤検知しない: lint-*.sh は対象外"
+teardown
+
+# --- 5. pre-commitの検査が記録層を経由しているか ---
+
+# 記録を省く影響は scripts/check-repo-conventions.sh のルール5を参照
+setup
+printf 'pre-commit:\n  jobs:\n    - run: ./scripts/check-something.sh\n    - run: ./scripts/tests/run-all.sh\n' > lefthook.yml
+git add lefthook.yml
+assert_exit 1 "検知: 検査を記録層を経ずに直接呼んでいる"
+teardown
+
+setup
+printf 'pre-commit:\n  jobs:\n    - run: ./scripts/lint-scripts.sh --staged\n    - run: ./scripts/tests/run-all.sh\n' > lefthook.yml
+git add lefthook.yml
+assert_exit 1 "検知: lint系も記録層を経由する"
+teardown
+
+setup
+printf 'pre-commit:\n  jobs:\n    - run: ./scripts/record-check.sh x -- ./scripts/check-something.sh\n    - run: ./scripts/tests/run-all.sh\n' > lefthook.yml
+git add lefthook.yml
+assert_exit 0 "誤検知しない: 記録層を経由している"
+teardown
+
+# 対話的な承認フローは標準エラーを経由させると端末とのやり取りが壊れる
+setup
+printf 'pre-commit:\n  jobs:\n    - run: ./scripts/check-rule-consolidation.sh\n    - run: ./scripts/tests/run-all.sh\n' > lefthook.yml
+git add lefthook.yml
+assert_exit 0 "誤検知しない: 対話的な承認フローは除外する"
+teardown
+
+# テストの実行やコミットメッセージ補助は検査ではない
+setup
+printf 'pre-commit:\n  jobs:\n    - run: ./scripts/tests/run-all.sh\nprepare-commit-msg:\n  jobs:\n    - run: ./scripts/suggest-commit-msg.sh {1}\n' > lefthook.yml
+git add lefthook.yml
+assert_exit 0 "誤検知しない: 検査以外の呼び出し"
+teardown
+
 suite_end

@@ -80,6 +80,33 @@ jobs:
       - name: doc duplication
         run: ./scripts/check-doc-duplication.sh
 
+  dashboard:
+    name: dashboard
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: install
+        run: uv sync --locked
+
+      - name: ruff check
+        run: uv run ruff check .
+
+      - name: ruff format
+        run: uv run ruff format --check .
+
+      # 画面は収集データを読む。ディレクトリトラバーサルとbind先の固定は
+      # ここで落ちなければ守られていることにならない
+      - name: pytest
+        run: uv run pytest -q
+
   sns-collector:
     name: sns-collector
     runs-on: ubuntu-latest

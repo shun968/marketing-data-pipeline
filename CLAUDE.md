@@ -13,6 +13,7 @@ sns-collector/data/     収集した生データ・DB     ← 絶対にコミッ
 sns-collector/state/    SeenStore・ログ・ロック   ← 絶対にコミットしない
 sns-collector/reports/  生成レポート             ← 絶対にコミットしない
 sns-collector/.env      APIキー                  ← 絶対にコミットしない
+.metrics/               ガードレール抵触の記録     ← 絶対にコミットしない
 ```
 
 すべて `.gitignore` 済みだが、**このリポジトリはPublicである**。`git add -A` や `git add .` を使う際は、これらが含まれていないことを必ず確認する。
@@ -37,10 +38,14 @@ scripts/                  リポジトリ共通スクリプト（規約チェッ
   check-repo-conventions.sh 規約を守る仕組みが在るかの検査（pre-commit / CI）
   check-doc-duplication.sh  規約の書き写しの検出（pre-commit / CI）
   check-rule-consolidation.sh 統合整理の確認。人へ聞く（pre-commit のみ）
+  record-check.sh           検査の実行記録。ガードレール見直しの入力（pre-commit）
   lint-scripts.sh           シェル・YAMLの静的検査（pre-commit / CI）
   tests/                    検査スクリプトの回帰テスト。`task test-check-scripts`
     lib.sh                  各テストの共通処理（setup / 集計 / アサーション）
 lefthook.yml              gitフックの登録。規約の強制はここに集約する
+.metrics/                 ガードレール抵触の記録（ローカル計測）  ← コミットしない
+dashboard/                モニタリング画面（Python 3.11+ / uv）
+  CLAUDE.md               ← この領域の規約・開発コマンドはこちら
 sns-collector/            収集ツール（Python 3.11+ / uv）
   CLAUDE.md               ← この領域の規約・開発コマンドはこちら
   config/                 keywords.yaml（検索語） domains.yaml（観測ドメインと仮説）
@@ -71,6 +76,7 @@ Taskfile.yml              開発タスク（lint / GitHub設定）
 | 検査スクリプトのテスト同伴・列挙の重複 | lefthook pre-commit と CI `guards` → `scripts/check-repo-conventions.sh` | 同スクリプトの先頭コメント |
 | 規約の書き写し | lefthook pre-commit と CI `guards` → `scripts/check-doc-duplication.sh` | 同スクリプトの先頭コメント |
 | 規約を足したときの統合整理 | lefthook pre-commit の承認フロー → `scripts/check-rule-consolidation.sh` | 同スクリプトの先頭コメント |
+| 違反出力のルールID・検査の記録漏れ | lefthook pre-commit と CI `guards` → `scripts/check-repo-conventions.sh` | `scripts/record-check.sh` の先頭コメント |
 
 - 領域固有の規約は各ディレクトリの `CLAUDE.md` に置く（例: `sns-collector/CLAUDE.md`）
 - 作業手順は `.claude/skills/` に置く。該当する作業に入ったらスキルに従う
@@ -89,11 +95,34 @@ Taskfile.yml              開発タスク（lint / GitHub設定）
 
 承認フローは**発火条件を絞ることが要件**である。何にでも掛けると承認が形骸化し、機械検査より弱くなる。追加する際は、聞かないケースを聞くケースと同じ数だけテストに書く。
 
+### Pythonの書き方
+
+`sns-collector` と `dashboard` の両方に適用する。領域固有のものは各 `CLAUDE.md` に置く。
+
+- Python 3.11以上。`from __future__ import annotations` を先頭に置く
+- lint・フォーマットは ruff に従う（設定は各 `pyproject.toml`。ここには書き写さない）
+- 型ヒントを付ける。dataclassは `frozen=True` を既定とする
+- コメント・docstringは日本語で書く
+- コメントは「コードが示せない制約」を書く時だけ。次の行が何をするかの説明は書かない
+
 コミットメッセージの形（body・footerは空、件名末尾にissue参照）:
 
 ```
 feat(sns-collector): redefine keyword strategy for demand signals (#3)
 ```
+
+## モニタリング
+
+`task dashboard` で http://127.0.0.1:8787 に画面が立つ。開発ルール・ADR・レポート・ガードレールメトリクスを1画面で見る。詳細は `dashboard/CLAUDE.md`。
+
+**この画面は収集データをそのまま表示する。127.0.0.1 から動かさない。**
+
+ガードレールメトリクスは pre-commit の実行時に `scripts/record-check.sh` が記録する。用途は**ルールの見直し**であり、次の判断に使う。
+
+- 一度も発火していない検査 → 剥がす候補。ゲートは増やすほど遅くなり、遅い pre-commit は `--no-verify` の常用を招く
+- 繰り返し発火するルール → 検査で止めるのではなく、設計で潰す候補
+
+**画面は候補を挙げるだけで、要不要は断定しない。** 発火していない検査が抑止力として効いている場合があるため、判断は人が行う。
 
 ## CI
 
@@ -103,6 +132,7 @@ feat(sns-collector): redefine keyword strategy for demand signals (#3)
 |---|---|
 | `guards` | シェル・YAMLの静的検査 / 禁止イディオム / リポジトリ規約 / 規約の書き写し / 検査スクリプトの回帰テスト / 収集データ・秘匿情報の混入検査 / ADR書式 |
 | `sns-collector` | ruff check / ruff format --check / pytest |
+| `dashboard` | ruff check / ruff format --check / pytest |
 
 **CIとローカルで検査の実装を分けない。** CIのステップはローカルと同じスクリプトを呼ぶだけにする。同じ検査を2箇所に書くと、手元で通ったものがCIで落ちる。
 

@@ -81,9 +81,11 @@ fold_continuations() {
   ' "$1"
 }
 
-# check_rule <ファイル> <検出regex> <除外regex|-> <見出し> <説明>
+# check_rule <ファイル> <ルールID> <検出regex> <除外regex|-> <見出し> <説明>
+#
+# ルールIDの決め方は scripts/record-check.sh を参照
 check_rule() {
-  local file="$1" detect="$2" allow="$3" title="$4" hint="$5"
+  local file="$1" rule_id="$2" detect="$3" allow="$4" title="$5" hint="$6"
   local entry line_no line trimmed segment
 
   while IFS= read -r entry; do
@@ -141,7 +143,7 @@ check_rule() {
     done
     [ "${detected}" -eq 1 ] || continue
 
-    echo "NG: ${file}:${line_no}: ${title}" >&2
+    echo "NG: [${rule_id}] ${file}:${line_no}: ${title}" >&2
     printf '%s\n' "${hint}" | sed 's/^/    /' >&2
     echo "" >&2
     violations=$((violations + 1))
@@ -153,7 +155,7 @@ for f in "$@"; do
 
   fold_continuations "${f}" > "${logical_file}"
 
-  check_rule "${f}" \
+  check_rule "${f}" git-list-without-z \
     'git ls-files|--name-only' `# idiom-ok: 検出パターンの定義そのもの` \
     '(^|[[:space:]])(-z|--error-unmatch)([[:space:]]|$)' \
     'gitのファイル一覧に -z が無い' \
@@ -165,7 +167,7 @@ for f in "$@"; do
   # 修正後: git ls-files -z "*.sh" > "${tmp}"
   #         mapfile -d "" -t files < "${tmp}"'
 
-  check_rule "${f}" \
+  check_rule "${f}" git-process-substitution \
     '<[[:space:]]*<\(.*git[[:space:]]' \
     '-' \
     'gitの出力をプロセス置換で読んでいる' \
@@ -178,7 +180,7 @@ for f in "$@"; do
   #         fi
   #         mapfile -d "" -t files < "${tmp}"'
 
-  check_rule "${f}" \
+  check_rule "${f}" cd-git-command-substitution \
     'cd[[:space:]]+"?\$\(git' \
     '-' \
     'gitのコマンド置換をそのまま cd に渡している' \

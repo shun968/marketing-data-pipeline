@@ -3,11 +3,11 @@ pre-commit:
   # 他ジョブの出力に埋もれる前に中断させる
   jobs:
     - name: no-private-data
-      run: ./scripts/check-no-private-data.sh
+      run: ./scripts/record-check.sh no-private-data -- ./scripts/check-no-private-data.sh
 
     - name: adr-format
       glob: "docs/adr/*.md"
-      run: ./scripts/check-adr-format.sh {staged_files}
+      run: ./scripts/record-check.sh adr-format -- ./scripts/check-adr-format.sh {staged_files}
 
     # 検査スクリプト自体が変わったときだけ回す。
     # 常時実行すると毎コミットに1.6秒上乗せされる
@@ -18,22 +18,22 @@ pre-commit:
     # 「規約を守る仕組みが在るか」を見る。個々のファイルではなく構造の検査であり、
     # 変更箇所に依存しないため常に回す(数十ミリ秒)
     - name: repo-conventions
-      run: ./scripts/check-repo-conventions.sh
+      run: ./scripts/record-check.sh repo-conventions -- ./scripts/check-repo-conventions.sh
 
     # シェル・YAMLが変わったときだけ回す。CI(guards)と同じスクリプトを呼ぶ。
     # --staged を付けないと未追跡の一時スクリプトまで検査対象になり、
     # 無関係なコミットが止まる
     - name: lint-scripts
       glob: "*.{sh,yml,yaml}"
-      run: ./scripts/lint-scripts.sh --staged
+      run: ./scripts/record-check.sh lint-scripts -- ./scripts/lint-scripts.sh --staged
 
     - name: lint
-      run: ./scripts/lint-projects.sh --staged-only
+      run: ./scripts/record-check.sh lint-projects -- ./scripts/lint-projects.sh --staged-only
 
     # 同じ規約が複数ファイルへ書き写されていないかを見る。
     # 対象は追跡中の全ファイルで、変更箇所に依存しないため常に回す
     - name: doc-duplication
-      run: ./scripts/check-doc-duplication.sh
+      run: ./scripts/record-check.sh doc-duplication -- ./scripts/check-doc-duplication.sh
 
     # 機械では判定できない統合整理の確認。規約ファイルがstagedのときだけ聞く。
     # interactive: true が無いと端末に繋がらず、常にスキップ扱いになる

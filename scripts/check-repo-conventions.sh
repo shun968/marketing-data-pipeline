@@ -22,8 +22,9 @@ cd "${root}"
 
 violations=0
 
+# report <ルールID> <詳細>。IDの決め方は scripts/record-check.sh を参照  dup-ok: 関数シグネチャの案内
 report() {
-  echo "NG: $1" >&2
+  echo "NG: [$1] $2" >&2
   violations=$((violations + 1))
 }
 
@@ -71,7 +72,7 @@ for script in "${tracked[@]-}"; do
   esac
   name="$(basename "${script}" .sh)"
   test_file="scripts/tests/${name}.test.sh"
-  in_index "${test_file}" || report "${script} に対応するテストが無い（${test_file} を作る）"
+  in_index "${test_file}" || report missing-test "${script} に対応するテストが無い（${test_file} を作る）"
 done
 
 # 2. テスト一覧を複数箇所へ書かない
@@ -85,7 +86,7 @@ INVOCATION='\./scripts/tests/[A-Za-z0-9_-]+\.test\.sh'
 for caller in lefthook.yml .github/workflows/ci.yml Taskfile.yml; do
   in_index "${caller}" || continue
   if index_content "${caller}" | grep -qE -- "${INVOCATION}"; then
-    report "${caller} がテストを直接列挙している（scripts/tests/run-all.sh を呼ぶ）"
+    report test-list-duplicated "${caller} がテストを直接列挙している（scripts/tests/run-all.sh を呼ぶ）"
   fi
 done
 
@@ -97,7 +98,46 @@ if in_index scripts/tests/run-all.sh; then
   # グロブ(`*.test.sh`)は許可し、具体名(`foo.test.sh`)だけを弾く。
   # `.test.sh` の直前が英数字かどうかで区別する
   if index_content scripts/tests/run-all.sh | grep -qE '^[^#]*[A-Za-z0-9_-]\.test\.sh'; then
-    report "scripts/tests/run-all.sh がテスト名を直接列挙している（*.test.sh の検出にする）"
+    report runall-enumerates "scripts/tests/run-all.sh がテスト名を直接列挙している（*.test.sh の検出にする）"
+  fi
+fi
+
+# 4. 違反出力にルールIDを付ける
+#
+#    `NG:` 行はモニタリング画面(dashboard/)の集計単位になる。
+#    IDが無いとファイル名や可変の文言が集計キーになり、推移が読めなくなる。
+#    記録側の仕様は scripts/record-check.sh を参照。
+#
+#    対象は「文字列リテラルとして NG: を出している行」だけにする。
+#    変数経由で組み立てる行まで見ようとすると静的には追えず、誤検知になる
+#    このスクリプト自身は検出パターンを本文に持つため除外する。
+#    除外はこの1ファイルに限定し、前方一致では広げない
+#    (将来追加する検査が気づかないうちに対象外になるため)。
+#    自身の出力形式は scripts/tests/check-repo-conventions.test.sh が担保する
+SELF="scripts/check-repo-conventions.sh"
+for script in "${tracked[@]-}"; do
+  case "${script}" in
+    "${SELF}") continue ;;
+    scripts/check-*.sh) ;;
+    *) continue ;;
+  esac
+  # 行頭が # の行(ルールの解説そのもの)は対象外
+  if index_content "${script}" | grep -E '^[^#]*"NG: ' | grep -qvE '"NG: \['; then
+    report ng-without-rule-id "${script} の違反出力にルールIDが無い（NG: [<id>] の形にする）"
+  fi
+done
+
+# 5. pre-commitの検査は記録層を経由する
+#
+#    記録の無い検査は発火回数が分からず、見直しの対象から漏れる。
+#    対話的な承認フローだけは除く(標準エラーを経由させると端末とのやり取りが壊れる)
+if in_index lefthook.yml; then
+  unrecorded="$(index_content lefthook.yml \
+    | grep -E '^[[:space:]]*-?[[:space:]]*run:.*scripts/(check|lint)-[a-z-]+\.sh' \
+    | grep -v 'record-check\.sh' \
+    | grep -v 'check-rule-consolidation\.sh' || true)"
+  if [ -n "${unrecorded}" ]; then
+    report check-not-recorded "lefthook.yml が検査を直接呼んでいる（scripts/record-check.sh を経由する）"
   fi
 fi
 

@@ -49,8 +49,9 @@ done
 STATUS_VOCAB='提案中|採用|却下|非推奨|置換済み（ADR-[0-9]{4}）'
 violations=0
 
+# report <ルールID> <詳細>。IDの決め方は scripts/record-check.sh を参照  dup-ok: 関数シグネチャの案内
 report() {
-  echo "NG: $1" >&2
+  echo "NG: [$1] $2" >&2
   violations=$((violations + 1))
 }
 
@@ -59,21 +60,21 @@ for f in "${targets[@]}"; do
   base="$(basename "${f}")"
 
   [[ "${base}" =~ ^[0-9]{4}-[a-z0-9-]+\.md$ ]] \
-    || report "${f}: ファイル名は 0001-kebab-case.md 形式にする"
+    || report adr-filename "${f}: ファイル名は 0001-kebab-case.md 形式にする"
 
   head -1 "${f}" | grep -qE '^# ADR-[0-9]{4}: .+' \
-    || report "${f}: 1行目は '# ADR-XXXX: タイトル' にする"
+    || report adr-title "${f}: 1行目は '# ADR-XXXX: タイトル' にする"
 
   # ステータスは1語。但し書きが付くと一覧から有効性を判断できなくなる
   status_line="$(grep -m1 '^- ステータス:' "${f}" || true)"
   if [ -z "${status_line}" ]; then
-    report "${f}: '- ステータス:' が無い"
+    report adr-status-missing "${f}: '- ステータス:' が無い"
   elif ! echo "${status_line}" | grep -qE "^- ステータス: (${STATUS_VOCAB})$"; then
-    report "${f}: ステータスは 提案中 / 採用 / 却下 / 非推奨 / 置換済み（ADR-XXXX） のいずれか1語にする(但し書きを付けない): ${status_line}"
+    report adr-status-vocab "${f}: ステータスは 提案中 / 採用 / 却下 / 非推奨 / 置換済み（ADR-XXXX） のいずれか1語にする(但し書きを付けない): ${status_line}"
   fi
 
   grep -qE '^- 日付: [0-9]{4}-[0-9]{2}-[0-9]{2}$' "${f}" \
-    || report "${f}: '- 日付: YYYY-MM-DD' が無い"
+    || report adr-date "${f}: '- 日付: YYYY-MM-DD' が無い"
 
   # 見出しは3つに固定する。増やすと同じ性質の記述が別の場所に散る。
   # コードフェンス内の `## ` は見出しではないため除外する
@@ -81,7 +82,7 @@ for f in "${targets[@]}"; do
   actual_headings="$(awk '/^```/ { in_fence = !in_fence; next } !in_fence && /^## /' "${f}")"
   expected_headings=$'## コンテキスト\n## 決定\n## 結果'
   if [ "${actual_headings}" != "${expected_headings}" ]; then
-    report "${f}: 見出しは '## コンテキスト' '## 決定' '## 結果' の3つをこの順で置く(現在: $(echo "${actual_headings}" | tr '\n' ' '))"
+    report adr-headings "${f}: 見出しは '## コンテキスト' '## 決定' '## 結果' の3つをこの順で置く(現在: $(echo "${actual_headings}" | tr '\n' ' '))"
   fi
 done
 

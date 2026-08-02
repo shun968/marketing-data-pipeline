@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}レポート{% endblock %}
+{% block content %}
+
+<h1>レポート・実行結果</h1>
+
+<section>
+  <h2>生成レポート</h2>
+  {% if reports %}
+  <table>
+    <thead><tr><th>レポート</th><th>更新</th><th class="num">サイズ</th></tr></thead>
+    <tbody>
+    {% for report in reports %}
+      <tr>
+        <td><a href="/reports/view?path={{ report.slug | urlencode }}">{{ report.title }}</a></td>
+        <td class="dim">{{ report.modified }}</td>
+        <td class="num dim">{{ report.size }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">
+    まだ生成されていない。<code>{{ reports_dir }}</code> に Markdown が置かれると、
+    ここへ自動的に並ぶ（<code>sns-collector report</code> は roadmap Phase 5）。
+  </p>
+  {% endif %}
+</section>
+
+{% if selected %}
+<section class="doc">
+  <h2>{{ selected.title }}</h2>
+  <p class="path">{{ selected.path }} — {{ selected.modified }}</p>
+  <article class="markdown">{{ body_html | safe }}</article>
+</section>
+{% endif %}
+
+<section>
+  <h2>収集の実行結果</h2>
+  {% if logs %}
+  <div class="cards">
+    {% for log in logs %}
+    <div class="card static">
+      <span class="label">{{ log.platform }}</span>
+      <span class="value">{{ log.total_added }}<small> / {{ log.total_fetched }}</small></span>
+      <span class="note">新規 / 取得（ログ内累計）</span>
+      <span class="note dim">最終実行 {{ log.last_run or '不明' }}</span>
+    </div>
+    {% endfor %}
+  </div>
+
+  {% for log in logs %}
+  <h3>{{ log.platform }} <small class="path">{{ log.path }}</small></h3>
+  {% if log.truncated %}
+  <p class="hint">直近の行のみ表示している（ログは追記され続けるため）。</p>
+  {% endif %}
+  <div class="logbox">
+    <table class="log">
+      <thead><tr><th>実行</th><th>キーワード</th><th class="num">取得</th><th class="num">新規</th></tr></thead>
+      <tbody>
+      {% for entry in log.entries %}
+        {% if entry.keyword %}
+        <tr class="{{ 'hit' if entry.added and entry.added > 0 }}">
+          <td class="dim">{{ entry.started_at or '' }}</td>
+          <td>{{ entry.keyword }}</td>
+          <td class="num">{{ entry.fetched }}</td>
+          <td class="num">{{ entry.added }}</td>
+        </tr>
+        {% endif %}
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endfor %}
+  {% else %}
+  <p class="empty">収集ログが無い。</p>
+  {% endif %}
+</section>
+
+{% if keywords %}
+<section>
+  <h2>キーワード別の実績</h2>
+  <p class="hint">
+    新規獲得の少ない順。新規0件が続く語は改訂候補になる
+    （設計原則は <code>sns-collector/README.md</code>）。
+  </p>
+  <table>
+    <thead>
+      <tr><th>プラットフォーム</th><th>キーワード</th><th class="num">取得</th><th class="num">新規</th><th class="num">回数</th></tr>
+    </thead>
+    <tbody>
+    {% for row in keywords %}
+      <tr class="{{ 'dead' if row.added == 0 }}">
+        <td class="dim">{{ row.platform }}</td>
+        <td>{{ row.keyword }}</td>
+        <td class="num">{{ row.fetched }}</td>
+        <td class="num">{{ row.added }}</td>
+        <td class="num dim">{{ row.runs }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+{% endblock %}
