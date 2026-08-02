@@ -20,7 +20,7 @@ sns-collector/.env      APIキー                  ← 絶対にコミットし�
 
 これは `scripts/check-no-private-data.sh` が pre-commit（lefthook）で機械的に検査する。**`--no-verify` で迂回しない。** 一度pushした内容は履歴を書き換えても取り消しきれない。
 
-埋め込み生成はローカルモデルで行い、外部APIへ投稿本文を送信しない（ADR-0002）。唯一の例外は構造化抽出で、Claude Codeセッション経由で投稿本文がAnthropicへ送信される（ADR-0003）。この線引きを勝手に動かさない。
+埋め込み生成はローカルモデルで行い、外部APIへ投稿本文を送信しない（ADR-0002）。例外は2つで、どちらもAnthropicへ渡る。構造化抽出（Claude Codeセッションへ投稿本文）と、CIの自動レビュー（PRの差分＝リポジトリのソース）である。いずれもADR-0003に根拠がある。この線引きを勝手に動かさない。
 
 ### パイプラインからLLM APIを呼ばない
 
@@ -63,25 +63,14 @@ Taskfile.yml              開発タスク（lint / GitHub設定）
 
 ## 規約
 
-**規約は1箇所にしか書かない。機械的に検査できるものは仕組みを正とし、ドキュメントには「何がどこで強制されるか」だけを置く。** 同じ内容が複数箇所にあると、必ず更新漏れが起きて食い違う。
+**規約は1箇所にしか書かない。機械的に適用されるものは実装を正とし、ドキュメントに書き写さない。** 一覧をここに持つと、実装と一覧の二重管理になって必ず食い違う。
 
-| 対象 | 強制する仕組み | 規約の詳細 |
-|---|---|---|
-| 収集データ・秘匿情報の混入 | lefthook pre-commit と `git add` 直後のhook → `scripts/check-no-private-data.sh` | 上の「最重要ルール」 |
-| ADRの書式・ステータス | lefthook pre-commit と編集直後のhook → `scripts/check-adr-format.sh` | `adr` スキル |
-| コミットメッセージ | lefthook commit-msg → commitlint | `commitlint.config.js` |
-| Pythonのlint・フォーマット | ruff（CI `sns-collector`） | `sns-collector/pyproject.toml` |
-| シェル・YAMLの静的検査 | lefthook pre-commit と CI `guards` → `scripts/lint-scripts.sh` | shellcheck / `.yamllint.yml` |
-| 過去に事故を起こしたシェルの書き方 | 同上 → `scripts/check-shell-idioms.sh` | 同スクリプトの先頭コメント |
-| 検査スクリプトのテスト同伴・列挙の重複 | lefthook pre-commit と CI `guards` → `scripts/check-repo-conventions.sh` | 同スクリプトの先頭コメント |
-| 規約の書き写し | lefthook pre-commit と CI `guards` → `scripts/check-doc-duplication.sh` | 同スクリプトの先頭コメント |
-| 規約を足したときの統合整理 | lefthook pre-commit の承認フロー → `scripts/check-rule-consolidation.sh` | 同スクリプトの先頭コメント |
-| 違反出力のルールID・検査の記録漏れ | lefthook pre-commit と CI `guards` → `scripts/check-repo-conventions.sh` | `scripts/record-check.sh` の先頭コメント |
-
-- 領域固有の規約は各ディレクトリの `CLAUDE.md` に置く（例: `sns-collector/CLAUDE.md`）
+- 何がどこで強制されるかは `lefthook.yml` と `.github/workflows/` を読む。**一覧をここに転記しない**
+- 各検査が何を見ているか・なぜ在るかは、スクリプト先頭のコメントに書く
 - 作業手順は `.claude/skills/` に置く。該当する作業に入ったらスキルに従う
-- **検査を追加したらこの表に行を足し、ドキュメント側の重複記述を消す**
 - 検査スクリプトを変更したら `scripts/tests/` に回帰テストを足す。**「検知できること」と同じ重みで「誤検知しないこと」をテストする。** 誤検知は `--no-verify` の常用を招き、ゲートを無効化する
+
+**ここに残すのは実装が語れないものだけ。** 判断の基準、機械化できなかった理由、仕組みが破れたときに人がやること。以下がそれにあたる。
 
 ### 機械検査と承認フローの使い分け
 
@@ -134,6 +123,8 @@ feat(sns-collector): redefine keyword strategy for demand signals (#3)
 | `sns-collector` | ruff check / ruff format --check / pytest |
 | `dashboard` | ruff check / ruff format --check / pytest |
 
+レビューは `.github/workflows/claude-review.yml` が別ワークフローで走らせる（下記「レビュー」）。**このジョブを `required_status_checks` に入れない。** 上限到達によるスキップがそのままマージ不能になる。
+
 **CIとローカルで検査の実装を分けない。** CIのステップはローカルと同じスクリプトを呼ぶだけにする。同じ検査を2箇所に書くと、手元で通ったものがCIで落ちる。
 
 **CIにはステージング領域が無い。** `check-no-private-data.sh` を既定モードのままCIで実行すると対象が常に0件になり、通っているのに何も見ていない状態になる。PRでは `--range <base>...HEAD`、mainへのpushでは `--all` を渡す。
@@ -142,9 +133,11 @@ feat(sns-collector): redefine keyword strategy for demand signals (#3)
 
 ## レビュー
 
-**PRを出したら必ず `/code-review <PR番号> --comment` を実行する。**
+**PR作成・更新のたびに `.github/workflows/claude-review.yml` がヘッドレスでレビューを走らせる。** 認証はサブスクリプションのOAuthトークン（secret `CLAUDE_CODE_OAUTH_TOKEN`、`claude setup-token` で発行）で、モデルは `--model opus` を指定している。
 
-rulesetの `required_review_thread_resolution` は「未解決コメントがあるPR」しか止められない。レビューを走らせなければコメントはゼロで素通りするため、**実行そのものは運用で担保するしかない**。マージ前に必ず実行すること。
+rulesetの `required_review_thread_resolution` は「未解決コメントがあるPR」しか止められない。レビューを走らせなければコメントはゼロで素通りするため、実行そのものをイベント駆動にしてある。
+
+**レビューが走らない条件はいくつもある**（付与分の超過、トークンの失効、ワークフロー自体を変更したPR）。ワークフローは終了状態ではなく**実行された形跡の有無**で判定し、走らなかった場合はその旨をPRへコメントする。コメントが付いていたら、マージ前に手元のセッションで `/code-review <PR番号> --comment` を実行すること。この最後の一手だけは運用で担保するしかない。
 
 ### 指摘を閉じる条件
 
