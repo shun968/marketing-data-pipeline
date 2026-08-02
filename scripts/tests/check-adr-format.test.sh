@@ -6,9 +6,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SCRIPT="${REPO_ROOT}/scripts/check-adr-format.sh"
 
-passed=0
-failed=0
-workdir=""
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 setup() {
   workdir="$(mktemp -d)"
@@ -18,8 +16,7 @@ setup() {
 }
 
 teardown() {
-  cd /
-  [ -n "${workdir}" ] && rm -rf "${workdir}"
+  cleanup_workdir
 }
 
 # write_adr <ファイル名> <ステータス行> <日付行> <本文>
@@ -46,18 +43,8 @@ VALID_BODY='## コンテキスト
 
 結果。'
 
-# assert_exit <期待する終了コード> <ケース名> <検査対象...>
 assert_exit() {
-  local expected="$1" name="$2" actual=0
-  shift 2
-  ./scripts/check-adr-format.sh "$@" > /dev/null 2>&1 || actual=$?
-  if [ "${actual}" -eq "${expected}" ]; then
-    echo "  ok   ${name}"
-    passed=$((passed + 1))
-  else
-    echo "  FAIL ${name}（期待: ${expected} / 実際: ${actual}）"
-    failed=$((failed + 1))
-  fi
+  assert_cmd_exit "$1" "$2" ./scripts/check-adr-format.sh "${@:3}"
 }
 
 echo "check-adr-format.sh"
@@ -172,6 +159,50 @@ setup
 assert_exit 1 "1行目のタイトル違反を検出する" docs/adr/0009-no-title.md
 teardown
 
-echo "  ---"
-echo "  成功 ${passed} / 失敗 ${failed}"
-[ "${failed}" -eq 0 ]
+# --- 引数なし（stagedを自分で拾う）経路 ---
+#
+# pre-commitフックはこの経路で呼ばれるが、他の全ケースは明示的に
+# ファイル引数を渡しているため、ここだけ検査されていなかった。
+# gitの失敗を握り潰す形へ戻しても気づけない状態だった
+
+setup
+git init -q .
+git config user.email test@example.com
+git config user.name test
+write_adr "0009-valid-example.md" "- ステータス: 採用" "- 日付: 2026-08-01" "${VALID_BODY}"
+git add -A
+assert_exit 0 "引数なし: stagedの正しいADRを通す"
+teardown
+
+setup
+git init -q .
+git config user.email test@example.com
+git config user.name test
+write_adr "0009-caveat.md" "- ステータス: 採用（保留あり）" "- 日付: 2026-08-01" "${VALID_BODY}"
+git add -A
+assert_exit 1 "引数なし: stagedの違反を検出する"
+teardown
+
+setup
+git init -q .
+git config user.email test@example.com
+git config user.name test
+write_adr "0009-unstaged.md" "- ステータス: 採用（保留あり）" "- 日付: 2026-08-01" "${VALID_BODY}"
+assert_exit 0 "引数なし: stagedでないADRは対象外"
+teardown
+
+# gitが使えない場所では、対象0件で成功せずに中断する
+setup
+write_adr "0009-valid-example.md" "- ステータス: 採用" "- 日付: 2026-08-01" "${VALID_BODY}"
+actual=0
+./scripts/check-adr-format.sh > /dev/null 2>&1 || actual=$?
+if [ "${actual}" -ne 0 ]; then
+  echo "  ok   引数なし: gitリポジトリ外では失敗する（0件で成功しない）"
+  passed=$((passed + 1))
+else
+  echo "  FAIL 引数なし: gitリポジトリ外では失敗する（0件で成功しない）"
+  failed=$((failed + 1))
+fi
+teardown
+
+suite_end

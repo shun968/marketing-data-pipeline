@@ -40,15 +40,43 @@ violations=0
 logical_file="$(mktemp)"
 trap 'rm -f "${logical_file}"' EXIT
 
-# 行継続(\)を1論理行へ畳み、`開始行番号<TAB>内容` を出力する。
-# 畳まないと `git diff --name-only \` の次行に -z がある形を誤検知する
+# 物理行を論理行へ畳み、`開始行番号<TAB>内容` を出力する。
+#
+# 畳む対象は2つ。
+#   1. 行継続(末尾の \)
+#        畳まないと `git diff --name-only \` の次行にある -z を見落として誤検知する。
+#        ただし**コメント行の末尾 \ では畳まない**。シェルはコメント内で行を継続せず、
+#        畳むと直後の実コード行までコメント扱いになって検査が素通りする。
+#   2. 閉じていないプロセス置換 `<(`
+#        `< <(` と `git` が別行に分かれた形を1行として見るため。
+#        畳まないと、この形の違反(実例: check-no-private-data.sh)を検出できない。
 fold_continuations() {
   awk '
-    { if (pending == 0) start = NR
+    function is_comment(s) { sub(/^[[:space:]]+/, "", s); return substr(s, 1, 1) == "#" }
+    function open_subst(s,   i, n) {
+      n = 0
+      n += gsub(/<\(/, "<(", s)
+      return n - gsub(/\)/, ")", s)
+    }
+    {
+      if (pending == 0) { start = NR; buf = "" }
       cur = $0
-      if (cur ~ /\\$/) { sub(/\\$/, "", cur); buf = buf cur; pending = 1; next }
-      print start "\t" buf cur
-      buf = ""; pending = 0 }
+
+      # コメント行の末尾 \ は継続ではない
+      if (cur ~ /\\$/ && !(pending == 0 && is_comment(cur))) {
+        sub(/\\$/, "", cur)
+        buf = buf cur
+        pending = 1
+        next
+      }
+
+      buf = buf cur
+      if (open_subst(buf) > 0) { pending = 1; next }
+
+      print start "\t" buf
+      buf = ""
+      pending = 0
+    }
     END { if (pending) print start "\t" buf }
   ' "$1"
 }
@@ -72,22 +100,46 @@ check_rule() {
 
     # 行末に `# idiom-ok: <理由>` があれば除外する。
     # テストのフィクスチャなど、検出対象の形を意図的に書く必要がある行のため。
+    #
     # ファイル単位ではなく行単位にしているのは、除外範囲が広いと
-    # 同じファイルの他の箇所で本物の再発を見逃すため
-    case "${line}" in
-      *'idiom-ok'*) continue ;;
-    esac
-
-    [[ ${line} =~ ${detect} ]] || continue
-
-    # 除外条件は行全体ではなく、gitコマンド以降の範囲だけで見る。
-    # 行全体を見ると `if [ -z "${x}" ]; then ... git ls-files ...; fi` のように
-    # 無関係な -z が検出を抑止してしまう
-    if [ "${allow}" != "-" ]; then
-      segment="${line#*git }"
-      segment="${segment%%;*}"
-      [[ ${segment} =~ ${allow} ]] && continue
+    # 同じファイルの他の箇所で本物の再発を見逃すため。
+    # さらに **コメント部にあるものだけ** を認める。行のどこでも良いことにすると、
+    # 文字列リテラルへ書くだけで検査を無効化できてしまう
+    if [[ ${line} =~ \#[^\'\"]*idiom-ok ]]; then
+      continue
     fi
+
+    # 論理行を `;` `&&` `||` で区切り、区切りごとに独立して判定する。
+    # 1行に複数のコマンドを書いた場合、先頭の -z が後続のコマンドまで
+    # 免除してしまうため(`git ls-files -z > a; git ls-files > b` が素通りする)。
+    #
+    # 単独の `|` では区切らない。パイプを割ると
+    # `< <(printf ... | git check-ignore ...)` が2つに分かれ、
+    # プロセス置換の検査が効かなくなる
+    local -a parts=()
+    local rest="${line}" part
+    while [[ ${rest} =~ (\;|\&\&|\|\|) ]]; do
+      part="${rest%%"${BASH_REMATCH[1]}"*}"
+      parts+=("${part}")
+      rest="${rest#*"${BASH_REMATCH[1]}"}"
+    done
+    parts+=("${rest}")
+
+    local detected=0
+    for part in "${parts[@]}"; do
+      [[ ${part} =~ ${detect} ]] || continue
+
+      # 除外条件は区切り内の、さらに git コマンド以降だけで見る。
+      # 区切り全体を見ると `if [ -z "${x}" ]` のような無関係な -z が検出を抑止する
+      if [ "${allow}" != "-" ]; then
+        segment="${part#*git }"
+        [[ ${segment} =~ ${allow} ]] && continue
+      fi
+
+      detected=1
+      break
+    done
+    [ "${detected}" -eq 1 ] || continue
 
     echo "NG: ${file}:${line_no}: ${title}" >&2
     printf '%s\n' "${hint}" | sed 's/^/    /' >&2
@@ -103,7 +155,7 @@ for f in "$@"; do
 
   check_rule "${f}" \
     'git ls-files|--name-only' `# idiom-ok: 検出パターンの定義そのもの` \
-    '(^|[[:space:]])-z([[:space:]]|$)' \
+    '(^|[[:space:]])(-z|--error-unmatch)([[:space:]]|$)' \
     'gitのファイル一覧に -z が無い' \
     'core.quotePath=true(既定)では非ASCIIパスが "\346\212\225..." 形式へ
 クォートされ、実在しないパスとして扱われて検査から静かに漏れる。
@@ -114,7 +166,7 @@ for f in "$@"; do
   #         mapfile -d "" -t files < "${tmp}"'
 
   check_rule "${f}" \
-    '<[[:space:]]*<\(git' \
+    '<[[:space:]]*<\(.*git[[:space:]]' \
     '-' \
     'gitの出力をプロセス置換で読んでいる' \
     'プロセス置換の中は set -e の対象外で、gitが失敗しても配列が空になるだけ。

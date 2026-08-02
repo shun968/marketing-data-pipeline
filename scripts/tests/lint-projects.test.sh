@@ -10,9 +10,8 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SCRIPT="${REPO_ROOT}/scripts/lint-projects.sh"
 
-passed=0
-failed=0
-workdir=""
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+ORIGINAL_PATH="${PATH}"
 
 setup() {
   workdir="$(mktemp -d)"
@@ -20,12 +19,32 @@ setup() {
   git init -q .
   git config user.email test@example.com
   git config user.name test
-  mkdir -p scripts
+  mkdir -p scripts bin
   cp "${SCRIPT}" scripts/lint-projects.sh
+
+  # npm をスタブ化する。
+  # 本物を使うと、この回帰テストを回すpre-commitとCIの guards ジョブが
+  # Node の導入状況に依存する(guards は uv しか用意していない)。
+  # 実行時間も1ケースあたり300ms程度かかる。
+  # package.json の lint スクリプトを直接実行すれば、検証したい
+  # 「どのディレクトリを対象に選ぶか」の挙動は変わらない
+  cat > bin/npm <<'STUB'
+#!/usr/bin/env bash
+set -euo pipefail
+[ "${1:-}" = "run" ] || exit 0
+script="$(sed -n 's/.*"lint"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' package.json)"
+[ -n "${script}" ] || exit 1
+eval "${script}"
+STUB
+  chmod +x bin/npm
+  PATH="${workdir}/bin:${PATH}"
+  export PATH
 }
 
 teardown() {
   cd /
+  PATH="${ORIGINAL_PATH}"
+  export PATH
   [ -n "${workdir}" ] && rm -rf "${workdir}"
 }
 
@@ -54,18 +73,8 @@ assert_linted() {
   fi
 }
 
-# assert_exit <期待する終了コード> <ケース名> [引数...]
 assert_exit() {
-  local expected="$1" name="$2" actual=0
-  shift 2
-  ./scripts/lint-projects.sh "$@" > /dev/null 2>&1 || actual=$?
-  if [ "${actual}" -eq "${expected}" ]; then
-    echo "  ok   ${name}"
-    passed=$((passed + 1))
-  else
-    echo "  FAIL ${name}（期待: ${expected} / 実際: ${actual}）"
-    failed=$((failed + 1))
-  fi
+  assert_cmd_exit "$1" "$2" ./scripts/lint-projects.sh "${@:3}"
 }
 
 echo "lint-projects.sh"
@@ -116,6 +125,4 @@ git add "proj/日本語ファイル.md"
 assert_linted 1 "--staged-only: 日本語ファイル名でもプロジェクトを判定できる" --staged-only
 teardown
 
-echo "  ---"
-echo "  成功 ${passed} / 失敗 ${failed}"
-[ "${failed}" -eq 0 ]
+suite_end

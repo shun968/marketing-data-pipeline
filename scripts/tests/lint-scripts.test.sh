@@ -11,9 +11,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SCRIPT="${REPO_ROOT}/scripts/lint-scripts.sh"
 YAMLLINT_CONFIG="${REPO_ROOT}/.yamllint.yml"
 
-passed=0
-failed=0
-workdir=""
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 setup() {
   workdir="$(mktemp -d)"
@@ -29,22 +27,11 @@ setup() {
 }
 
 teardown() {
-  cd /
-  [ -n "${workdir}" ] && rm -rf "${workdir}"
+  cleanup_workdir
 }
 
-# assert_exit <期待する終了コード> <ケース名> [引数...]
 assert_exit() {
-  local expected="$1" name="$2" actual=0
-  shift 2
-  ./scripts/lint-scripts.sh "$@" > /dev/null 2>&1 || actual=$?
-  if [ "${actual}" -eq "${expected}" ]; then
-    echo "  ok   ${name}"
-    passed=$((passed + 1))
-  else
-    echo "  FAIL ${name}（期待: ${expected} / 実際: ${actual}）"
-    failed=$((failed + 1))
-  fi
+  assert_cmd_exit "$1" "$2" ./scripts/lint-scripts.sh "${@:3}"
 }
 
 # assert_fails <ケース名> [引数...]
@@ -69,11 +56,9 @@ assert_scanned() {
   shift 2
   actual="$(./scripts/lint-scripts.sh "$@" 2>/dev/null | grep -oP '^\s+\K[0-9]+(?= ファイル)' | head -1 || true)"
   if [ "${actual:-0}" -eq "${expected}" ]; then
-    echo "  ok   ${name}"
-    passed=$((passed + 1))
+    pass "${name}"
   else
-    echo "  FAIL ${name}（期待: ${expected}ファイル / 実際: ${actual:-0}ファイル）"
-    failed=$((failed + 1))
+    fail "${name}" "${expected}ファイル" "${actual:-0}ファイル"
   fi
 }
 
@@ -140,8 +125,7 @@ git add -A
 assert_scanned 3 "日本語ファイル名のファイルを検査対象に含む（検査スクリプト2本+1）"
 teardown
 
-# `git rm` ではなく `rm` で消したファイルはindexに残る。
-# 実体の無いパスを渡すとlinterが中断し、無関係なコミットまで止まる
+# 実体の無いパスを渡すとlinterが中断する（理由は lint-scripts.sh のコメント）
 setup
 write_clean_sh removed.sh
 git add -A
@@ -187,6 +171,4 @@ write_clean_sh untracked.sh
 assert_scanned 4 "既定は未追跡ファイルも対象にする"
 teardown
 
-echo "  ---"
-echo "  成功 ${passed} / 失敗 ${failed}"
-[ "${failed}" -eq 0 ]
+suite_end

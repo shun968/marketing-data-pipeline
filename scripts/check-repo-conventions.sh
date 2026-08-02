@@ -56,6 +56,14 @@ in_index() {
   return 1
 }
 
+# 作業ツリーではなくindexの内容を読む。
+# 参照先が検査ごとに違うと、未stagedの編集で無関係なコミットが止まったり、
+# stagedの違反を作業ツリーで戻すだけで素通りしたりする。
+# **この検査はすべてindexだけを見る**
+index_content() {
+  git show ":$1"
+}
+
 for script in "${tracked[@]-}"; do
   case "${script}" in
     scripts/check-*.sh | scripts/lint-*.sh) ;;
@@ -75,8 +83,8 @@ done
 #    対象外にする(誤検知はゲートの迂回を招く)
 INVOCATION='\./scripts/tests/[A-Za-z0-9_-]+\.test\.sh'
 for caller in lefthook.yml .github/workflows/ci.yml Taskfile.yml; do
-  [ -f "${caller}" ] || continue
-  if grep -qE -- "${INVOCATION}" "${caller}"; then
+  in_index "${caller}" || continue
+  if index_content "${caller}" | grep -qE -- "${INVOCATION}"; then
     report "${caller} がテストを直接列挙している（scripts/tests/run-all.sh を呼ぶ）"
   fi
 done
@@ -85,10 +93,10 @@ done
 #
 #    ここに個々のテスト名が書かれていると、1と2を満たしていても
 #    結局は列挙の更新漏れが起きる
-if [ -f scripts/tests/run-all.sh ]; then
+if in_index scripts/tests/run-all.sh; then
   # グロブ(`*.test.sh`)は許可し、具体名(`foo.test.sh`)だけを弾く。
   # `.test.sh` の直前が英数字かどうかで区別する
-  if grep -qE '^[^#]*[A-Za-z0-9_-]\.test\.sh' scripts/tests/run-all.sh; then
+  if index_content scripts/tests/run-all.sh | grep -qE '^[^#]*[A-Za-z0-9_-]\.test\.sh'; then
     report "scripts/tests/run-all.sh がテスト名を直接列挙している（*.test.sh の検出にする）"
   fi
 fi
