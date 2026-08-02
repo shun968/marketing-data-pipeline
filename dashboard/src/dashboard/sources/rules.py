@@ -113,9 +113,17 @@ def load_documents() -> list[Document]:
 
 # lefthook のフック見出し。列0から始まる `pre-commit:` `commit-msg:` など
 _HOOK_HEADING = re.compile(r"^(?P<hook>[a-z][a-z0-9-]*):\s*$")
-_JOB_NAME = re.compile(r"^\s*-\s*name:\s*(?P<name>\S+)\s*$")
-_RUN = re.compile(r"^\s*-?\s*run:\s*(?P<cmd>.+?)\s*$")
-_INTERACTIVE = re.compile(r"^\s+interactive:\s*true\s*$")
+
+# **ジョブの境界は `-` の有無で決まる。**
+# リスト項目(`- name:` / `- run:`)が新しいジョブの始まりで、
+# 字下げだけの `name:` / `run:` は現在のジョブの属性である。
+# ここを区別しないと、名前を持たないジョブが2つ以上並んだときに
+# 2つ目以降が現在のジョブへ吸収されて消え、`interactive` も前へ漏れる。
+_JOB_NAME = re.compile(r"^\s*-\s*name:\s*(?P<name>.+?)\s*$")
+_JOB_RUN = re.compile(r"^\s*-\s*run:\s*(?P<cmd>.+?)\s*$")
+_NAME_PROP = re.compile(r"^\s+name:\s*(?P<name>.+?)\s*$")
+_RUN_PROP = re.compile(r"^\s+run:\s*(?P<cmd>.+?)\s*$")
+_INTERACTIVE = re.compile(r"^\s*-?\s*interactive:\s*true\s*$")
 _CI_STEP = re.compile(r"^\s+-\s*name:\s*(?P<name>.+?)\s*\n\s+run:\s*(?P<cmd>.+?)\s*$", re.MULTILINE)
 
 
@@ -139,8 +147,11 @@ def _parse_lefthook(text: str) -> list[Gate]:
 
     def flush() -> None:
         nonlocal name, command, interactive
-        if hook and name and command:
-            gates.append(Gate(name=name, command=command, where=hook, interactive=interactive))
+        # 名前は無くてもよい。`- run:` だけのジョブはコマンドを名前として出す
+        if hook and command:
+            gates.append(
+                Gate(name=name or command, command=command, where=hook, interactive=interactive)
+            )
         name = None
         command = None
         interactive = False
@@ -152,22 +163,30 @@ def _parse_lefthook(text: str) -> list[Gate]:
             hook = heading.group("hook")
             continue
 
-        job = _JOB_NAME.match(line)
-        if job:
+        job_name = _JOB_NAME.match(line)
+        if job_name:
             flush()
-            name = job.group("name")
+            name = job_name.group("name")
+            continue
+
+        job_run = _JOB_RUN.match(line)
+        if job_run:
+            flush()
+            command = job_run.group("cmd")
             continue
 
         if _INTERACTIVE.match(line):
             interactive = True
             continue
 
-        run = _RUN.match(line)
-        if run and command is None:
-            # `- name:` を持たないジョブもある。コマンドを名前の代わりにする
-            if name is None:
-                name = run.group("cmd")
-            command = run.group("cmd")
+        name_prop = _NAME_PROP.match(line)
+        if name_prop and name is None:
+            name = name_prop.group("name")
+            continue
+
+        run_prop = _RUN_PROP.match(line)
+        if run_prop and command is None:
+            command = run_prop.group("cmd")
 
     flush()
     return gates
