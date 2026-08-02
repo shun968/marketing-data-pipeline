@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 #
-# フィクスチャとして検査対象のコード片を printf の書式文字列に持つため、
-# ファイル全体で SC2016(単一引用符内は展開されない) を無効化する。
-# ここで展開されるとフィクスチャが壊れるため、指摘は常に誤検知になる。
+# フィクスチャを単一引用符で保持する必要があるため SC2016 を無効化する。
+# 事情は検査器側の先頭コメントと同じ。
 # shellcheck disable=SC2016
 set -euo pipefail
 
@@ -18,9 +17,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SCRIPT="${REPO_ROOT}/scripts/check-shell-idioms.sh"
 
-passed=0
-failed=0
-workdir=""
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 setup() {
   workdir="$(mktemp -d)"
@@ -28,21 +25,11 @@ setup() {
 }
 
 teardown() {
-  cd /
-  [ -n "${workdir}" ] && rm -rf "${workdir}"
+  cleanup_workdir
 }
 
-# assert_exit <期待する終了コード> <ケース名>
 assert_exit() {
-  local expected="$1" name="$2" actual=0
-  "${SCRIPT}" target.sh > /dev/null 2>&1 || actual=$?
-  if [ "${actual}" -eq "${expected}" ]; then
-    echo "  ok   ${name}"
-    passed=$((passed + 1))
-  else
-    echo "  FAIL ${name}（期待: ${expected} / 実際: ${actual}）"
-    failed=$((failed + 1))
-  fi
+  assert_cmd_exit "$1" "$2" "${SCRIPT}" target.sh
 }
 
 header() {
@@ -180,6 +167,56 @@ printf 'git %s "*.md"\n' 'ls-files' >> target.sh  # idiom-ok: 検査対象のフ
 assert_exit 1 "マーカーは行単位で、同じファイルの他の行は検査する"
 teardown
 
+# 文字列リテラルに書くだけで検査を無効化できてはいけない
+setup
+header
+printf 'echo "idiom-ok と書く"; git %s > b\n' 'ls-files' >> target.sh  # idiom-ok: 検査対象のフィクスチャ
+assert_exit 1 "マーカーはコメント部のみ有効（文字列内では効かない）"
+teardown
+
+# --- 行をまたぐ形・区切りの扱い ---
+
+# `< <(` と git が別行に分かれた形。畳まないと検出できない
+setup
+header
+printf 'mapfile -d "" -t x < <(\n  git %s -z\n)\n' 'ls-files' >> target.sh  # idiom-ok: 検査対象のフィクスチャ
+assert_exit 1 "検知: プロセス置換が複数行にまたがる"
+teardown
+
+# パイプで区切ると `< <(printf ... | git ...)` が2つに割れて検査が効かなくなる
+setup
+header
+printf 'mapfile -d "" -t x < <(printf "%%s" "$a" | git check-ignore -z --stdin)\n' >> target.sh  # idiom-ok: 検査対象のフィクスチャ
+assert_exit 1 "検知: プロセス置換の中がパイプでも分割しない"
+teardown
+
+# シェルはコメント内で行を継続しない。畳むと直後の実コード行までコメント扱いになる
+setup
+header
+printf '# 説明 \\\nmapfile -t f < <(git %s "*.sh")\n' 'ls-files' >> target.sh  # idiom-ok: 検査対象のフィクスチャ
+assert_exit 1 "検知: コメント末尾の \\ で次行を巻き込まない"
+teardown
+
+# 先頭の -z が同じ行の後続コマンドまで免除してはいけない
+setup
+header
+printf 'git %s -z > a; git %s > b\n' 'ls-files' 'ls-files' >> target.sh  # idiom-ok: 検査対象のフィクスチャ
+assert_exit 1 "検知: 同一行の2つ目のgitに -z が無い"
+teardown
+
+setup
+header
+printf 'git %s -z > a; git %s -z > b\n' 'ls-files' 'ls-files' >> target.sh  # idiom-ok: 検査対象のフィクスチャ
+assert_exit 0 "誤検知しない: 同一行の両方に -z がある"
+teardown
+
+# 存在確認は出力を捨てるため -z に意味が無い。誤検知するとマーカー付与を強いる
+setup
+header
+printf 'git %s --error-unmatch "$f" >/dev/null\n' 'ls-files' >> target.sh  # idiom-ok: 検査対象のフィクスチャ
+assert_exit 0 "誤検知しない: --error-unmatch は存在確認"
+teardown
+
 # --- その他 ---
 
 setup
@@ -198,6 +235,4 @@ else
 fi
 teardown
 
-echo "  ---"
-echo "  成功 ${passed} / 失敗 ${failed}"
-[ "${failed}" -eq 0 ]
+suite_end

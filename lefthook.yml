@@ -30,6 +30,17 @@ pre-commit:
     - name: lint
       run: ./scripts/lint-projects.sh --staged-only
 
+    # 同じ規約が複数ファイルへ書き写されていないかを見る。
+    # 対象は追跡中の全ファイルで、変更箇所に依存しないため常に回す
+    - name: doc-duplication
+      run: ./scripts/check-doc-duplication.sh
+
+    # 機械では判定できない統合整理の確認。規約ファイルがstagedのときだけ聞く。
+    # interactive: true が無いと端末に繋がらず、常にスキップ扱いになる
+    - name: rule-consolidation
+      interactive: true
+      run: ./scripts/check-rule-consolidation.sh
+
 prepare-commit-msg:
   jobs:
     - name: suggest-commit-msg

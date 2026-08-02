@@ -85,7 +85,13 @@ collect() {
 echo "==> shellcheck"
 collect '*.sh'
 if [ "${#FILES[@]}" -gt 0 ]; then
-  uvx --from "${SHELLCHECK_PKG}" shellcheck "${FILES[@]}"
+  # -x: source 先を追って解析する。
+  #     無いと共通処理を切り出しただけで SC1091(info) が出て赤くなり、
+  #     共通化を諦めるか無効化コメントを全ファイルへ書き足すことになる
+  # --source-path=SCRIPTDIR: source 先をスクリプト自身の位置から解決する。
+  #     既定はカレントディレクトリ基準のため、リポジトリルートから実行すると
+  #     `$(dirname "${BASH_SOURCE[0]}")/lib.sh` を見つけられない
+  uvx --from "${SHELLCHECK_PKG}" shellcheck -x --source-path=SCRIPTDIR "${FILES[@]}"
   echo "  ${#FILES[@]} ファイル: 指摘なし"
 else
   echo "  対象なし"
