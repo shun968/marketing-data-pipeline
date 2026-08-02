@@ -90,6 +90,22 @@ jobs:
             exit 0
           fi
 
+          # アクションはSDKの出力を既定で伏せる(差分やレビュー本文が出るため)。
+          # 伏せたままだと失敗の原因が終了コードしか残らず、上限到達なのか
+          # プロンプトの解決失敗なのかを切り分けられない。
+          # このステップは「レビューが成立しなかったとき」しか動かないため、
+          # ここに出るのはエラー文であってレビュー本文ではない
+          if [ -f "${EXECUTION_FILE}" ]; then
+            echo "--- 実行結果の要約 ---"
+            jq -r '
+              (if type == "array" then .[-1] else . end) as $r
+              | "type=\($r.type // "?") subtype=\($r.subtype // "?")"
+                + " is_error=\($r.is_error // "?") num_turns=\($r.num_turns // "?")",
+                "message=\((($r.result // $r.error // $r.message) // "") | tostring | .[0:600])"
+            ' "${EXECUTION_FILE}" 2>/dev/null || echo "実行ログをJSONとして解釈できなかった"
+            echo "--- ここまで ---"
+          fi
+
           # 走らなかった理由(上限到達・認証切れ・アクション側のスキップ)は
           # 機械的に判別しない。実行ログにはPRの差分とレビュー本文がそのまま入るため、
           # `quota` や `credit` を含む変更を見ただけで「上限到達」と誤って断定する。
