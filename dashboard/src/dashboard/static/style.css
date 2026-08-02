@@ -169,3 +169,22 @@ tr.dead td { color: var(--dim); }
 
 .candidates { list-style: none; padding: 0; margin: 0.4rem 0; }
 .candidates li { padding: 0.35rem 0.7rem; background: var(--panel); border: 1px solid var(--border); border-radius: 5px; margin-bottom: 0.3rem; font-size: 0.88rem; }
+
+/* 収集ログ: 実行単位の折りたたみ */
+.logbox { max-height: 520px; }
+details.run { border-bottom: 1px solid var(--border); }
+details.run:last-child { border-bottom: none; }
+details.run > summary {
+  cursor: pointer;
+  padding: 0.4rem 0.7rem;
+  display: flex;
+  gap: 0.8rem;
+  align-items: center;
+  font-size: 0.85rem;
+}
+details.run > summary:hover { background: rgba(127, 179, 145, 0.07); }
+details.run > summary .ts { font-family: ui-monospace, Menlo, monospace; }
+details.run.unfinished > summary { background: rgba(224, 121, 109, 0.09); }
+details.run table { border: none; border-radius: 0; }
+.notes { list-style: none; margin: 0; padding: 0.3rem 0.7rem 0.6rem; }
+.notes li { color: var(--dim); font-size: 0.8rem; font-family: ui-monospace, Menlo, monospace; overflow-wrap: anywhere; }

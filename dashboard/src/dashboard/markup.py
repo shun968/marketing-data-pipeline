@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import re
 from functools import lru_cache
 
 from markdown_it import MarkdownIt
@@ -28,26 +27,3 @@ def render(text: str) -> str:
     書いたものだが、レンダラの設定でXSSの有無が変わる箇所を暗黙にしない。
     """
     return _renderer().render(text)
-
-
-_HEADING = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.MULTILINE)
-_FENCE = re.compile(r"^```", re.MULTILINE)
-
-
-def outline(text: str, max_level: int = 2) -> list[tuple[int, str]]:
-    """見出しの一覧を返す。目次の生成に使う。
-
-    コードフェンス内の `#` は見出しではないため除外する。
-    """
-    result: list[tuple[int, str]] = []
-    in_fence = False
-    for line in text.splitlines():
-        if _FENCE.match(line):
-            in_fence = not in_fence
-            continue
-        if in_fence:
-            continue
-        matched = _HEADING.match(line)
-        if matched and len(matched.group(1)) <= max_level:
-            result.append((len(matched.group(1)), matched.group(2)))
-    return result

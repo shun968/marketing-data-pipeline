@@ -88,13 +88,6 @@ def load_all() -> list[Adr]:
     return sorted(items, key=lambda a: a.slug)
 
 
-def load(slug: str) -> Adr | None:
-    for item in load_all():
-        if item.slug == slug:
-            return item
-    return None
-
-
 def render_body(item: Adr) -> str:
     return markup.render(item.body)
 
