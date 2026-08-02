@@ -10,20 +10,24 @@
 
 レポートはまだ生成されていない(roadmap Phase 5)。ディレクトリが無い場合も
 空として扱い、生成され次第そのまま出るようにしてある。
+
+**集計の範囲と表示の範囲を分ける。**
+ログは追記され続けるため表示は直近に絞るが、集計まで絞ると
+「累計」と称した値が実際の半分になる。同じ定数で両方を決めない。
 """
 
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
 from dashboard import markup
-from dashboard.paths import relative_to_repo, resolve_within, roots
+from dashboard.paths import OutsideRootError, relative_to_repo, resolve_within, roots
 
-# 1回の表示で読むログの行数。収集ログは追記され続けるため上限を置く
-LOG_TAIL_LINES = 400
+# 画面に出す実行の数。集計はこれに関係なく全行を対象にする
+DISPLAY_RUNS = 20
 
 
 @dataclass(frozen=True)
@@ -36,15 +40,40 @@ class Report:
 
 
 @dataclass(frozen=True)
-class RunEntry:
-    """収集ログ1行の解釈結果。"""
+class KeywordResult:
+    """1キーワード分の収集結果。"""
 
-    raw: str
+    keyword: str
+    fetched: int
+    added: int
+    skipped: int
+
+
+@dataclass
+class Run:
+    """収集1回分。
+
+    `finished` が False の実行は、開始したが `done:` を出さずに終わっている。
+    このリポジトリの主要な失敗モードは途中終了(HTTPエラーで打ち切り)であり、
+    完走したかどうかが分からない実行結果の画面は用をなさない。
+    """
+
     started_at: str | None
-    keyword: str | None
-    fetched: int | None
-    added: int | None
-    skipped: int | None
+    finished_at: str | None = None
+    results: list[KeywordResult] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
+
+    @property
+    def finished(self) -> bool:
+        return self.finished_at is not None
+
+    @property
+    def fetched(self) -> int:
+        return sum(r.fetched for r in self.results)
+
+    @property
+    def added(self) -> int:
+        return sum(r.added for r in self.results)
 
 
 @dataclass(frozen=True)
@@ -52,23 +81,38 @@ class CollectorLog:
     platform: str
     path: str
     modified: str
-    entries: list[RunEntry]
-    truncated: bool
+    runs: list[Run]
+
+    @property
+    def display_runs(self) -> list[Run]:
+        """画面に出す分。新しいものが先。"""
+        return list(reversed(self.runs))[:DISPLAY_RUNS]
+
+    @property
+    def truncated(self) -> bool:
+        return len(self.runs) > DISPLAY_RUNS
 
     @property
     def total_added(self) -> int:
-        return sum(e.added for e in self.entries if e.added is not None)
+        return sum(run.added for run in self.runs)
 
     @property
     def total_fetched(self) -> int:
-        return sum(e.fetched for e in self.entries if e.fetched is not None)
+        return sum(run.fetched for run in self.runs)
 
     @property
-    def last_run(self) -> str | None:
-        for entry in reversed(self.entries):
-            if entry.started_at:
-                return entry.started_at
-        return None
+    def last_run(self) -> Run | None:
+        return self.runs[-1] if self.runs else None
+
+    @property
+    def unfinished(self) -> int:
+        """完走しなかった実行の数。
+
+        最後の1回は実行中の可能性があるため除く。
+        cronが3時間おきに回している以上、進行中のものを失敗として
+        数えると常に1件が赤く出ることになる。
+        """
+        return sum(1 for run in self.runs[:-1] if not run.finished)
 
 
 def _mtime(path: Path) -> str:
@@ -82,10 +126,17 @@ def list_reports() -> list[Report]:
 
     items: list[Report] = []
     for path in sorted(directory.rglob("*.md"), reverse=True):
-        relative = path.relative_to(directory)
+        relative = str(path.relative_to(directory))
+        # 一覧にも本文取得と同じ検証を掛ける。
+        # 外を指すシンボリックリンクは本文が404になるため、
+        # 一覧にだけ並ぶと「開けない項目」と stat 由来のサイズ・更新時刻が残る
+        try:
+            resolve_within(directory, relative)
+        except OutsideRootError:
+            continue
         items.append(
             Report(
-                slug=str(relative),
+                slug=relative,
                 title=path.stem,
                 path=relative_to_repo(path),
                 modified=_mtime(path),
@@ -117,33 +168,58 @@ def read_report(slug: str) -> tuple[Report, str] | None:
 
 
 _START = re.compile(r"^\[(?P<ts>[^\]]+)\]\s*start:\s*(?P<platform>\S+)")
+_DONE = re.compile(r"^\[(?P<ts>[^\]]+)\]\s*done:\s*(?P<platform>\S+)")
 _RESULT = re.compile(
     r"^\[(?P<platform>[^:\]]+):(?P<keyword>[^\]]+)\]\s*"
     r"取得:\s*(?P<fetched>\d+)件\s*/\s*新規:\s*(?P<added>\d+)件\s*/\s*スキップ:\s*(?P<skipped>\d+)件"
 )
 
 
-def _parse_log_line(line: str, current_start: str | None) -> tuple[RunEntry, str | None]:
-    start = _START.match(line)
-    if start:
-        ts = start.group("ts")
-        return RunEntry(line, ts, None, None, None, None), ts
+def _parse_log(text: str) -> list[Run]:
+    """ログ全文を実行単位へ組み直す。
 
-    result = _RESULT.match(line)
-    if result:
-        return (
-            RunEntry(
-                raw=line,
-                started_at=current_start,
-                keyword=result.group("keyword"),
-                fetched=int(result.group("fetched")),
-                added=int(result.group("added")),
-                skipped=int(result.group("skipped")),
-            ),
-            current_start,
-        )
+    `start:` で新しい実行が始まり、`done:` で完了する。
+    どちらにも当てはまらない行は、その実行のメモとして残す。
+    **落とさない。** 保存先・保存件数・エラーはここに出る
+    """
+    runs: list[Run] = []
+    current: Run | None = None
 
-    return RunEntry(line, current_start, None, None, None, None), current_start
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+
+        start = _START.match(line)
+        if start:
+            current = Run(started_at=start.group("ts"))
+            runs.append(current)
+            continue
+
+        if current is None:
+            # ログの途中から読んだ場合、先頭に開始行が無いことがある
+            current = Run(started_at=None)
+            runs.append(current)
+
+        done = _DONE.match(line)
+        if done:
+            current.finished_at = done.group("ts")
+            continue
+
+        result = _RESULT.match(line)
+        if result:
+            current.results.append(
+                KeywordResult(
+                    keyword=result.group("keyword"),
+                    fetched=int(result.group("fetched")),
+                    added=int(result.group("added")),
+                    skipped=int(result.group("skipped")),
+                )
+            )
+            continue
+
+        current.notes.append(line)
+
+    return runs
 
 
 def list_collector_logs() -> list[CollectorLog]:
@@ -153,25 +229,13 @@ def list_collector_logs() -> list[CollectorLog]:
 
     logs: list[CollectorLog] = []
     for path in sorted(directory.glob("*.log")):
-        all_lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-        truncated = len(all_lines) > LOG_TAIL_LINES
-        lines = all_lines[-LOG_TAIL_LINES:]
-
-        entries: list[RunEntry] = []
-        current_start: str | None = None
-        for line in lines:
-            if not line.strip():
-                continue
-            entry, current_start = _parse_log_line(line, current_start)
-            entries.append(entry)
-
+        text = path.read_text(encoding="utf-8", errors="replace")
         logs.append(
             CollectorLog(
                 platform=path.stem,
                 path=relative_to_repo(path),
                 modified=_mtime(path),
-                entries=entries,
-                truncated=truncated,
+                runs=_parse_log(text),
             )
         )
     return logs
@@ -182,17 +246,19 @@ def keyword_summary(logs: list[CollectorLog]) -> list[dict[str, object]]:
 
     キーワード設計の見直し(README の2原則)に使う。新規0件が続く語は
     改訂候補であり、これは事業方針側の判断材料になる。
+
+    **全実行を対象にする。** 表示範囲で絞ると、古いログ区間にしか
+    現れない語が表から消え、改訂の判断を誤らせる。
     """
     totals: dict[tuple[str, str], dict[str, int]] = {}
     for log in logs:
-        for entry in log.entries:
-            if entry.keyword is None:
-                continue
-            key = (log.platform, entry.keyword)
-            bucket = totals.setdefault(key, {"fetched": 0, "added": 0, "runs": 0})
-            bucket["fetched"] += entry.fetched or 0
-            bucket["added"] += entry.added or 0
-            bucket["runs"] += 1
+        for run in log.runs:
+            for result in run.results:
+                key = (log.platform, result.keyword)
+                bucket = totals.setdefault(key, {"fetched": 0, "added": 0, "runs": 0})
+                bucket["fetched"] += result.fetched
+                bucket["added"] += result.added
+                bucket["runs"] += 1
 
     rows = [
         {
