@@ -10,7 +10,7 @@ name: Claude Review
 # 課金について:
 #   claude_code_oauth_token はサブスクリプションの付与分を使う。
 #   使い切ると実行が失敗するため continue-on-error で受け止め、
-#   スキップした旨のコメントだけ残してCIは緑にする。
+#   レビューが走らなかった旨のコメントだけ残してCIは緑にする。
 #   このジョブを ruleset の required_status_checks に入れないこと。
 #   入れると上限到達がそのままマージ不能になる。
 on:
@@ -40,10 +40,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      # プラグインには owner/repo/pull/N を渡しており、差分はGitHub API経由で取れる。
+      # 全履歴が要るかは未検証のため、既定の浅いクローンのままにしておく。
+      # レビューが差分を取れていなければ初回実行で分かる
       - uses: actions/checkout@v4
-        with:
-          # レビュー対象はbaseとの差分。履歴が要る
-          fetch-depth: 0
 
       - name: claude code review
         id: review
@@ -57,39 +57,61 @@ jobs:
             /code-review:code-review
             ${{ github.repository }}/pull/${{ github.event.pull_request.number }}
           # opus は「その時点の最新Opus」を指すエイリアス。
-          # 世代が上がってもこのファイルを書き換えずに追従する
-          claude_args: --model opus
+          # 世代が上がってもこのファイルを書き換えずに追従する。
+          #
+          # --max-turns を明示する理由:
+          #   既定は10で、上限に達するとアクションは失敗せず正常終了する。
+          #   複数エージェントで差分を分担するプラグインには足りず、
+          #   指摘が一部しか出ないまま緑になる経路になる。
+          #   この値は暫定。実行ログのターン数を見て調整すること
+          claude_args: |
+            --model opus
+            --max-turns 40
 
-      # 失敗の原因が上限到達かどうかは終了コードでは分からないため、
-      # 実行ログの本文で判別する。判別に失敗しても案内内容は変わらない
-      - name: notify skipped
-        if: steps.review.outcome == 'failure'
+      # 「失敗したか」ではなく「レビューが実行された形跡があるか」で判定する。
+      #
+      # アクションはワークフローファイルがデフォルトブランチと一致しないとき、
+      # 失敗ではなく success で自らスキップする(PRからのプロンプト書き換えを防ぐ
+      # 安全機構)。終了状態だけを見ていると、レビューが1行も走っていないPRが
+      # 緑・コメント0件のまま素通りする。#31 で実測した。
+      - name: notify unreviewed
+        if: ${{ !cancelled() }}
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          REVIEW_OUTCOME: ${{ steps.review.outcome }}
           EXECUTION_FILE: ${{ steps.review.outputs.execution_file }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           MARKER: "<!-- claude-review-skipped -->"
         run: |
-          reason="実行に失敗した"
-          if [ -n "${EXECUTION_FILE}" ] && [ -f "${EXECUTION_FILE}" ]; then
-            if grep -qiE 'usage limit|rate limit|quota|credit' "${EXECUTION_FILE}"; then
-              reason="サブスクリプションの付与分を使い切った"
-            fi
+          if [ "${REVIEW_OUTCOME}" = "success" ] &&
+             [ -n "${EXECUTION_FILE}" ] && [ -f "${EXECUTION_FILE}" ]; then
+            echo "レビューが実行されたため案内は出さない"
+            exit 0
           fi
 
-          # 同じPRへ push するたびに同じ案内を積まない
+          # 走らなかった理由(上限到達・認証切れ・アクション側のスキップ)は
+          # 機械的に判別しない。実行ログにはPRの差分とレビュー本文がそのまま入るため、
+          # `quota` や `credit` を含む変更を見ただけで「上限到達」と誤って断定する。
+          # 誤った理由は「実行に失敗した」より悪く、原因調査の初手を外させる。
+          # 推測を書かず実行URLだけ案内し、判断は人に渡す
+
+          # 同じPRへ push するたびに同じ案内を積まない。
+          # 取得に失敗したときは重複を許して投稿する。案内が出ないことのほうが重い
           existing="$(gh pr view "${PR_NUMBER}" --json comments \
-            --jq "[.comments[] | select(.body | contains(\"${MARKER}\"))] | length")"
+            --jq "[.comments[] | select(.body | contains(\"${MARKER}\"))] | length" \
+            2>/dev/null)" || existing="0"
           if [ "${existing}" != "0" ]; then
-            echo "案内コメントは投稿済みのためスキップする"
+            echo "案内コメントは投稿済みのため何もしない"
             exit 0
           fi
 
           # YAMLブロックのインデントが本文に混ざると```がコードブロック内に入る。
           # 行ごとにprintfで組み立てる
-          body="$(printf '%s\n%s\n\n%s\n\n%s\n%s\n%s\n' \
+          body="$(printf '%s\n%s\n\n%s\n\n%s\n\n%s\n%s\n%s\n' \
             "${MARKER}" \
-            "自動レビューをスキップした（${reason}）。" \
+            "自動レビューが実行されなかった。" \
+            "理由は実行ログを見ること: ${RUN_URL}" \
             "マージ前に、手元のClaude Codeセッションで次を実行すること。" \
             '```' \
             "/code-review ${PR_NUMBER} --comment" \
