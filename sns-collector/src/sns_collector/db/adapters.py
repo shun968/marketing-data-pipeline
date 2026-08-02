@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 
@@ -38,7 +38,12 @@ class PostRow:
 
 
 def _parse_timestamp(value: Any) -> datetime | None:
-    """ISO8601をdatetimeへ。壊れていればNoneにする。
+    """ISO8601をUTCのnaive datetimeへ。壊れていればNoneにする。
+
+    **必ずUTCへ揃えてからtzinfoを外す。** `posts.posted_at` は naive TIMESTAMP で、
+    aware datetime をそのまま渡すとDuckDBがセッションの TimeZone でローカル時刻へ
+    変換して格納する。同じJSONLでも実行した機械のTZで値が変わり、
+    「JSONLがあれば再構築できる」(F-04) が成立しなくなる。
 
     日時が読めないことは行を捨てる理由にならない。本文と投稿IDが揃っていれば
     重複排除と抽出には足りる。
@@ -46,9 +51,15 @@ def _parse_timestamp(value: Any) -> datetime | None:
     if not isinstance(value, str) or not value:
         return None
     try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
         return None
+
+    if parsed.tzinfo is None:
+        # オフセットの無い表記はUTCとみなす。ローカルTZで解釈すると
+        # 上と同じ「機械によって値が変わる」問題に戻る
+        return parsed
+    return parsed.astimezone(UTC).replace(tzinfo=None)
 
 
 def _first_lang(value: Any) -> str | None:

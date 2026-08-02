@@ -2,14 +2,18 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import requests
 
 from ..common.config import BlueskyConfig
 from ..common.storage import append_jsonl
-from ..db import connect, insert_records, known_ids
+from ..db import connect, insert_records, known_ids, record_keyword_hits
 from .client import search_posts
 from .models import BlueskyPost
+
+if TYPE_CHECKING:  # pragma: no cover - 型注釈のためだけに読む
+    import duckdb
 
 
 def run(config: BlueskyConfig, data_dir: Path, db_path: Path) -> None:
@@ -19,7 +23,7 @@ def run(config: BlueskyConfig, data_dir: Path, db_path: Path) -> None:
         _run_with_db(config, data_dir, conn)
 
 
-def _run_with_db(config: BlueskyConfig, data_dir: Path, conn) -> None:
+def _run_with_db(config: BlueskyConfig, data_dir: Path, conn: duckdb.DuckDBPyConnection) -> None:
     today = datetime.now(UTC).date()
     collected_at = datetime.now(UTC)
 
@@ -40,6 +44,7 @@ def _run_with_db(config: BlueskyConfig, data_dir: Path, conn) -> None:
             failed_keywords.append(keyword)
             continue
 
+        known_hits: list[str] = []
         new_posts: list[BlueskyPost] = []
         skip_count = 0
         malformed_count = 0
@@ -52,7 +57,12 @@ def _run_with_db(config: BlueskyConfig, data_dir: Path, conn) -> None:
                 print(f"  [bluesky:{keyword}] 不正な投稿をスキップ: {e}")
                 continue
 
-            if post.post_id in run_seen or post.post_id in seen:
+            if post.post_id in run_seen:
+                skip_count += 1
+                continue
+            if post.post_id in seen:
+                # JSONLには書かないが、この語でも見つかった事実はDBへ残す
+                known_hits.append(post.post_id)
                 skip_count += 1
                 continue
             run_seen.add(post.post_id)
@@ -66,9 +76,16 @@ def _run_with_db(config: BlueskyConfig, data_dir: Path, conn) -> None:
         if new_posts:
             records = [p.to_dict() for p in new_posts]
             output_path = append_jsonl(records, data_dir, today)
-            insert_records(conn, "bluesky", records)
+            result = insert_records(conn, "bluesky", records)
+            if result.failed:
+                print(
+                    f"  [bluesky:{keyword}] {result.failed}件がDBに入らなかった。"
+                    "重複判定できず次回も再収集される"
+                )
             seen.update(p.post_id for p in new_posts)
             total_new += len(new_posts)
+
+        record_keyword_hits(conn, "bluesky", known_hits, keyword)
 
         message = (
             f"[bluesky:{keyword}] 取得: {len(raw_posts)}件 "

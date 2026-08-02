@@ -242,7 +242,9 @@ cp data/analysis.duckdb data/analysis.duckdb.$(date +%Y%m%d)
 
 `data/{bluesky,youtube}/<YYYY-MM-DD>.jsonl`に1行1JSONで追記される（同日内の複数回実行は同一ファイルに追記）。
 
-run跨ぎの重複を避けるため、既知の投稿ID/動画IDは`state/{bluesky,youtube}_seen.json`に永続化される（60日経過したエントリは自動的に破棄）。同じキーワードで再実行しても、既に収集済みの投稿・動画は再度JSONLに書き込まれない。
+run跨ぎの重複を避けるため、収集した投稿は同時に`data/analysis.duckdb`の`posts`へ書き込まれ、次回以降はそこを既知判定に使う（[分析ストア](#分析ストアduckdb)を参照）。同じキーワードで再実行しても、既に収集済みの投稿・動画は再度JSONLに書き込まれない。
+
+既知の投稿が別のキーワードでも見つかった場合、JSONLには書かれないが`posts.matched_keywords`へその語が追加される。どの語が効いているかはキーワード改訂の判断材料になる。
 
 ## 定期実行(cron)
 

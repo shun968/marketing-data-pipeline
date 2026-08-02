@@ -69,3 +69,21 @@ def test_日時が壊れていても行は捨てない():
 def test_キーワードが無ければ空配列にする():
     row = from_bluesky({k: v for k, v in BLUESKY_RECORD.items() if k != "keyword"})
     assert row.matched_keywords == []
+
+
+def test_日時はUTCへ揃えてから格納する():
+    """awareなdatetimeをそのまま渡すと、DuckDBがセッションTZでローカル時刻へ変換する。
+
+    同じJSONLでも実行した機械のTZで値が変わり、F-04（JSONLからの再構築）が崩れる。
+    """
+    row = from_bluesky({**BLUESKY_RECORD, "created_at": "2026-06-05T11:47:05+09:00"})
+
+    assert row.posted_at is not None
+    assert row.posted_at.tzinfo is None, "naiveでなければDuckDBがTZ変換してしまう"
+    assert row.posted_at.isoformat() == "2026-06-05T02:47:05", "UTCへ揃っていない"
+
+
+def test_オフセットが無い表記はUTCとみなす():
+    row = from_bluesky({**BLUESKY_RECORD, "created_at": "2026-06-05T11:47:05"})
+    assert row.posted_at is not None
+    assert row.posted_at.isoformat() == "2026-06-05T11:47:05"

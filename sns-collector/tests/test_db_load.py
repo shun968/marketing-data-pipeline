@@ -6,7 +6,14 @@ from pathlib import Path
 
 import pytest
 
-from sns_collector.db import connect, current_version, insert_records, known_ids, latest_version
+from sns_collector.db import (
+    connect,
+    current_version,
+    insert_records,
+    known_ids,
+    latest_version,
+    record_keyword_hits,
+)
 from sns_collector.db.load import load_all, load_platform
 from tests.conftest import BLUESKY_RECORD
 
@@ -140,3 +147,83 @@ def test_known_idsはプラットフォームで絞る(conn):
 
     assert known_ids(conn, "bluesky") == {BLUESKY_RECORD["post_id"]}
     assert known_ids(conn, "youtube") == set()
+
+
+def test_機械のTZが変わってもDBの値は変わらない(conn, tmp_path: Path):
+    """同じJSONLからは同じDBができること（F-04）。"""
+    data_dir = tmp_path / "data"
+    _write_jsonl(
+        data_dir / "bluesky" / "2026-08-02.jsonl",
+        [{**BLUESKY_RECORD, "created_at": "2026-06-05T11:47:05+09:00"}],
+    )
+    load_platform(conn, data_dir, "bluesky")
+
+    stored = conn.execute("SELECT posted_at FROM posts").fetchone()[0]
+    assert stored.isoformat() == "2026-06-05T02:47:05"
+
+
+def test_再ロードで既存行の正規化結果を修復する(conn, tmp_path: Path):
+    """アダプタを直した後、過去分に反映できること（F-04）。
+
+    matched_keywords だけを更新する形だと、誤った値のまま入った行を
+    二度と直せない。
+    """
+    data_dir = tmp_path / "data"
+    path = data_dir / "bluesky" / "2026-08-02.jsonl"
+    _write_jsonl(path, [{**BLUESKY_RECORD, "text": "古い本文"}])
+    load_platform(conn, data_dir, "bluesky")
+
+    _write_jsonl(path, [{**BLUESKY_RECORD, "text": "直した本文"}])
+    load_platform(conn, data_dir, "bluesky")
+
+    assert conn.execute("SELECT text FROM posts").fetchone()[0] == "直した本文"
+
+
+def test_再ロードしても抽出状態は戻さない(conn, tmp_path: Path):
+    """extraction_status はDB側の状態。上書きすると二重に抽出される。"""
+    data_dir = tmp_path / "data"
+    _write_jsonl(data_dir / "bluesky" / "2026-08-02.jsonl", [BLUESKY_RECORD])
+    load_platform(conn, data_dir, "bluesky")
+    conn.execute("UPDATE posts SET extraction_status = 'done'")
+
+    load_platform(conn, data_dir, "bluesky")
+
+    assert conn.execute("SELECT extraction_status FROM posts").fetchone()[0] == "done"
+
+
+def test_投入に失敗した件数を返す(conn):
+    """握り潰すと、その投稿はJSONLに在るのにDBに無く、永久に再収集される。"""
+    result = insert_records(conn, "bluesky", [BLUESKY_RECORD, {"keyword": "post_idが無い"}])
+
+    assert result.inserted == 1
+    assert result.failed == 1
+
+
+def test_既知の投稿に別キーワードのヒットを足せる(conn):
+    insert_records(conn, "bluesky", [BLUESKY_RECORD])
+
+    record_keyword_hits(conn, "bluesky", [BLUESKY_RECORD["post_id"]], "別のキーワード")
+
+    keywords = conn.execute("SELECT matched_keywords FROM posts").fetchone()[0]
+    assert sorted(keywords) == ["ラズパイ YOLO", "別のキーワード"]
+
+
+def test_同じキーワードを重ねても増えない(conn):
+    insert_records(conn, "bluesky", [BLUESKY_RECORD])
+
+    record_keyword_hits(conn, "bluesky", [BLUESKY_RECORD["post_id"]], "ラズパイ YOLO")
+
+    assert conn.execute("SELECT matched_keywords FROM posts").fetchone()[0] == ["ラズパイ YOLO"]
+
+
+def test_読めないファイルがあっても他のファイルは取り込む(conn, tmp_path: Path):
+    """db load は壊れたDBを作り直す経路。ここで全体が止まると復旧手段を失う。"""
+    data_dir = tmp_path / "data"
+    _write_jsonl(data_dir / "bluesky" / "2026-08-02.jsonl", [BLUESKY_RECORD])
+    broken = data_dir / "bluesky" / "2026-08-01.jsonl"
+    broken.write_bytes(b"\xff\xfe not utf-8 \x00\n")
+
+    result = load_platform(conn, data_dir, "bluesky")
+
+    assert result.inserted == 1, "壊れたファイル以外が取り込まれていない"
+    assert result.skipped == 1

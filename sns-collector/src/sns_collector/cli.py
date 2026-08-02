@@ -5,6 +5,8 @@ import sys
 from datetime import date
 from pathlib import Path
 
+import duckdb
+
 from .bluesky import search as bluesky_search
 from .common.config import ConfigError, load_bluesky_config, load_youtube_config
 from .db import connect, current_version, database_path, latest_version, load_all
@@ -103,6 +105,12 @@ def main(argv: list[str] | None = None) -> int:
             )
     except ConfigError as e:
         print(f"設定エラー: {e}", file=sys.stderr)
+        return 1
+    except duckdb.IOException as e:
+        # DuckDBはプロセス間で書き込みを排他する。cronの収集と手動実行が
+        # 重なると素のトレースバックで落ちるため、次に何をすべきかを出す
+        print(f"分析DBを開けなかった: {e}", file=sys.stderr)
+        print("別の収集が実行中の可能性がある。終わってから再実行すること。", file=sys.stderr)
         return 1
 
     return 0
