@@ -63,6 +63,16 @@ check_exit() {
   fi
 }
 
+# assert_eq <期待> <実際> <ケース名>
+# `[ ... ] && pass || fail` と書くと、pass の終了コード次第で fail も走る
+assert_eq() {
+  if [ "$1" = "$2" ]; then
+    pass "$3"
+  else
+    fail "$3" "$1" "$2"
+  fi
+}
+
 # assert_cmd_exit <期待する終了コード> <ケース名> <コマンド...>
 # 各テストの assert_exit はこれを包むだけにする。
 # 同じ引数説明を6ファイルへ書き写さないため

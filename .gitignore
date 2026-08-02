@@ -232,3 +232,6 @@ sns-collector/data/
 sns-collector/state/
 sns-collector/reports/
 
+
+# ガードレール抵触の記録(ローカル計測・非公開)
+.metrics/

@@ -1,0 +1,39 @@
+[project]
+name = "dashboard"
+version = "0.1.0"
+description = "開発ルール・ADR・レポート・ガードレールメトリクスのモニタリング画面"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115,<1",
+    "uvicorn>=0.32,<1",
+    "jinja2>=3.1,<4",
+    "markdown-it-py>=3.0,<4",
+]
+
+[project.scripts]
+dashboard = "dashboard.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/dashboard"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0,<9",
+    "ruff>=0.6,<1",
+    "httpx>=0.27,<1",
+]
+
+[tool.pytest.ini_options]
+# conftest のヘルパを `from conftest import ...` で使うため
+pythonpath = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning"]

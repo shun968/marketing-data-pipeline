@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}開発ルール{% endblock %}
+{% block content %}
+
+<h1>開発ルール</h1>
+
+<section>
+  <h2>実際に動いているゲート</h2>
+  <p class="hint">
+    散文の規約ではなく <code>lefthook.yml</code> と CI から組み立てた一覧。
+    書いてあるが動いていない規約と、動いているが書かれていない規約を区別するため。
+  </p>
+  <table>
+    <thead>
+      <tr><th>名前</th><th>場所</th><th>呼んでいる検査</th><th>記録</th></tr>
+    </thead>
+    <tbody>
+    {% for gate in gates %}
+      <tr>
+        <td>{{ gate.name }}</td>
+        <td><span class="tag {{ 'ci' if gate.where == 'CI' else 'local' }}">{{ gate.where }}</span></td>
+        <td>
+          <code>{{ gate.script }}</code>
+          {% if gate.interactive %}<span class="tag warn">承認フロー</span>{% endif %}
+        </td>
+        <td>
+          {% if gate.recorded %}<span class="ok">あり</span>
+          {% elif gate.interactive or not gate.is_check %}<span class="dim">対象外</span>
+          {% else %}<span class="tag warn">なし</span>{% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<div class="split-wide">
+  <nav class="side">
+    <h2>ドキュメント</h2>
+    <ul class="doclist">
+    {% for doc in documents %}
+      <li>
+        <a href="/rules/{{ doc.slug }}" class="{{ 'on' if selected and selected.slug == doc.slug }}">
+          {{ doc.title }}
+        </a>
+        <span class="path">{{ doc.path }}</span>
+      </li>
+    {% endfor %}
+    </ul>
+  </nav>
+
+  <section class="doc">
+    {% if selected %}
+      <h2>{{ selected.title }}</h2>
+      <p class="path">{{ selected.path }}</p>
+      <article class="markdown">{{ selected.html | safe }}</article>
+    {% else %}
+      <p class="empty">左からドキュメントを選ぶ。</p>
+    {% endif %}
+  </section>
+</div>
+
+{% endblock %}

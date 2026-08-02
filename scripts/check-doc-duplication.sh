@@ -87,7 +87,7 @@ duplicates="$(
 
 if [ -n "${duplicates}" ]; then
   count="$(printf '%s\n' "${duplicates}" | wc -l)"
-  echo "NG: 同じ記述が複数のファイルにある（${count} 件）" >&2
+  echo "NG: [doc-duplicated] 同じ記述が複数のファイルにある（${count} 件）" >&2
   echo "" >&2
   printf '%s\n' "${duplicates}" | while IFS=$'\t' read -r first second text; do
     echo "  ${first}" >&2

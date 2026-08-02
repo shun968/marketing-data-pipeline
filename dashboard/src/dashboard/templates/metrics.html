@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% block title %}メトリクス{% endblock %}
+{% block content %}
+
+<h1>ガードレールメトリクス</h1>
+<p class="hint">
+  用途は<strong>ガードレールの見直し</strong>。発火していないルールは剥がす候補、
+  繰り返し発火するルールは検査ではなく設計で潰す候補。
+  所要時間が伸びると <code>--no-verify</code> の常用を招く。
+</p>
+
+{% if not has_metrics %}
+<div class="notice">
+  <strong>まだ記録が無い。</strong>
+  <p>
+    <code>{{ events_file }}</code> は pre-commit の実行時に
+    <code>scripts/record-check.sh</code> が追記する。一度コミットすれば集計が始まる。
+  </p>
+</div>
+{% else %}
+
+<section>
+  <h2>検査ごとの実績 <small class="dim">{{ events_total }} 実行</small></h2>
+  <table>
+    <thead>
+      <tr>
+        <th>検査</th><th class="num">実行</th><th class="num">ブロック</th>
+        <th class="num">ブロック率</th><th class="num">違反</th><th class="num">平均</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for stat in checks %}
+      <tr>
+        <td><code>{{ stat.check }}</code></td>
+        <td class="num">{{ stat.runs }}</td>
+        <td class="num {{ 'strong' if stat.blocks }}">{{ stat.blocks }}</td>
+        <td class="num dim">{{ '%.0f' | format(stat.block_rate * 100) }}%</td>
+        <td class="num">{{ stat.violations }}</td>
+        <td class="num {{ 'strong' if stat.avg_ms > 1000 }}">{{ stat.avg_ms }}ms</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>ルール別の発火回数</h2>
+  {% if rule_rows %}
+  <table>
+    <thead><tr><th>ルールID</th><th class="num">発火</th><th>最終</th><th>推移</th></tr></thead>
+    <tbody>
+    {% for row in rule_rows %}
+      <tr>
+        <td><code>{{ row.rule }}</code></td>
+        <td class="num strong">{{ row.hits }}</td>
+        <td class="dim">{{ row.last_seen }}</td>
+        <td><span class="bar" style="width: {{ (row.hits / rule_rows[0].hits * 100) | round }}%"></span></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">まだ1件も発火していない。</p>
+  {% endif %}
+</section>
+
+<section>
+  <h2>日別の推移</h2>
+  {% if daily %}
+  <div class="chart">
+    {% set peak = daily | map(attribute='runs') | max %}
+    {% for day in daily %}
+    <div class="col" title="{{ day.date }} — 実行 {{ day.runs }} / ブロック {{ day.blocks }}">
+      <span class="run" style="height: {{ (day.runs / peak * 100) if peak else 0 }}%"></span>
+      <span class="block" style="height: {{ (day.blocks / peak * 100) if peak else 0 }}%"></span>
+    </div>
+    {% endfor %}
+  </div>
+  <p class="legend"><span class="key run"></span>実行 <span class="key block"></span>ブロック</p>
+  {% else %}
+  <p class="empty">データが無い。</p>
+  {% endif %}
+</section>
+
+<section>
+  <h2>見直しの候補</h2>
+  {% if silent %}
+  <p class="hint">
+    一度も止めていない検査。<strong>不要とは限らない</strong>——抑止力として
+    効いている可能性がある。剥がすかどうかは実際の運用を見て人が決める。
+  </p>
+  <ul class="candidates">
+    {% for stat in silent %}
+    <li><code>{{ stat.check }}</code> — {{ stat.runs }} 回実行・平均 {{ stat.avg_ms }}ms</li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="empty">すべての検査が少なくとも1回はブロックしている。</p>
+  {% endif %}
+</section>
+
+{% endif %}
+
+<section>
+  <h2>記録されていないゲート</h2>
+  <p class="hint">記録が無い検査は発火回数が分からず、見直しの対象から漏れる。</p>
+  <ul class="candidates">
+  {% for gate in gates if gate.where == 'pre-commit' and gate.is_check and not gate.recorded and not gate.interactive %}
+    <li><code>{{ gate.name }}</code>（{{ gate.where }}）— {{ gate.script }}</li>
+  {% else %}
+    <li class="dim">pre-commit の検査はすべて記録層を経由している。</li>
+  {% endfor %}
+  </ul>
+  <p class="hint">
+    対話的な承認フローは意図的に対象外（標準エラーを経由させると端末との
+    やり取りが壊れる）。テスト実行やコミットメッセージ補助も検査ではないため除く。
+    CI には記録層を挟んでいない——サーバ側の実行はローカルの作業回数と
+    性質が違い、混ぜると「人が何回止められたか」が読めなくなる。
+  </p>
+</section>
+
+{% endblock %}

@@ -98,10 +98,12 @@ REF=""
 
 violations=0
 
+# report <ルールID> <詳細>。IDの決め方は scripts/record-check.sh を参照  dup-ok: 関数シグネチャの案内。
+#
+# 値そのものは出力しない。ログや端末履歴に秘匿情報を残さないため、
+# 常に「どのファイルの何行目か」だけを示す
 report() {
-  # 値そのものは出力しない。ログや端末履歴に秘匿情報を残さないため、
-  # 常に「どのファイルの何行目か」だけを示す
-  echo "NG: $1" >&2
+  echo "NG: [$1] $2" >&2
   violations=$((violations + 1))
 }
 
@@ -123,7 +125,7 @@ for f in "${staged[@]}"; do
     *) continue ;;
   esac
   forbidden+=("${f}")
-  report "非公開ファイルが含まれている: ${f}"
+  report private-file "非公開ファイルが含まれている: ${f}"
 done
 
 # 2. .gitignore の対象がstagedに入っていないか
@@ -156,7 +158,7 @@ for f in "${ignored[@]}"; do
     [ "${g}" = "${f}" ] && { duplicate=1; break; }
   done
   [ "${duplicate}" -eq 1 ] && continue
-  report ".gitignore対象が含まれている: ${f}"
+  report gitignored-file ".gitignore対象が含まれている: ${f}"
 done
 
 # 3. 秘匿情報らしき文字列
@@ -186,7 +188,7 @@ for f in "${staged[@]}"; do
   # 空文字として扱うと、参照の指定ミスで検査対象から外れたことに気づけず、
   # 「通っているのに何も見ていない」状態を作る。fail-closed にする。
   if ! git cat-file -e "${REF}:${f}" 2>/dev/null; then
-    report "内容を読めなかった(参照: ${REF:-index}): ${f}"
+    report unreadable "内容を読めなかった(参照: ${REF:-index}): ${f}"
     continue
   fi
   content="$(git show "${REF}:${f}" 2>/dev/null || true)"
@@ -202,7 +204,7 @@ for f in "${staged[@]}"; do
     hits="$(echo "${content}" | grep -nIE -e "${regex}" | cut -d: -f1 || true)"
     [ -n "${hits}" ] || continue
     while IFS= read -r line_no; do
-      report "${label}らしき文字列: ${f}:${line_no}"
+      report secret-string "${label}らしき文字列: ${f}:${line_no}"
     done <<< "${hits}"
   done
 done

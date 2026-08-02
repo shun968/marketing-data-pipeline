@@ -163,7 +163,8 @@ tasks:
                 "strict_required_status_checks_policy": false,
                 "required_status_checks": [
                   { "context": "guards" },
-                  { "context": "sns-collector" }
+                  { "context": "sns-collector" },
+                  { "context": "dashboard" }
                 ]
               }
             },
@@ -201,5 +202,29 @@ tasks:
   sns-collector:setup:
     desc: sns-collectorのPython依存関係をインストールする
     dir: sns-collector
+    cmds:
+      - uv sync
+
+  dashboard:
+    desc: モニタリング画面を起動する(http://127.0.0.1:8787)
+    summary: |
+      開発ルール・ADR・レポート・ガードレールメトリクスを1画面で見る。
+
+      常駐サーバで、リロードのたびにファイルを読み直す。
+      ビルド成果物を作らないため、生成物が誤ってコミットされる経路が無い。
+
+      収集データ(レポート本文・収集ログ・キーワード実績)をそのまま表示するため
+      127.0.0.1 に固定してある。外から見る必要が出た場合は
+      既定を変えずSSHのポートフォワードを使うこと。
+
+      メトリクスは pre-commit の実行時に記録される。
+      一度もコミットしていない状態では空になる。
+    dir: dashboard
+    cmds:
+      - uv run dashboard
+
+  dashboard:setup:
+    desc: モニタリング画面のPython依存関係をインストールする
+    dir: dashboard
     cmds:
       - uv sync

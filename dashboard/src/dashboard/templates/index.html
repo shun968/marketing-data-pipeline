@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}概況{% endblock %}
+{% block content %}
+
+<h1>概況</h1>
+
+<section class="cards">
+  <a class="card" href="/adr">
+    <span class="label">ADR</span>
+    <span class="value">{{ adr_active }}<small> / {{ adr_total }}</small></span>
+    <span class="note">採用中 / 全体</span>
+  </a>
+  <a class="card" href="/rules">
+    <span class="label">動いているゲート</span>
+    <span class="value">{{ gate_count }}</span>
+    <span class="note">pre-commit と CI</span>
+  </a>
+  <a class="card" href="/reports">
+    <span class="label">レポート</span>
+    <span class="value">{{ report_count }}</span>
+    <span class="note">収集ログ {{ log_count }} 本</span>
+  </a>
+  <a class="card" href="/reports">
+    <span class="label">新規収集</span>
+    <span class="value">{{ collected }}</span>
+    <span class="note">ログに残る累計件数</span>
+  </a>
+  <a class="card {{ 'warn' if not has_metrics }}" href="/metrics">
+    <span class="label">ガードレール実行</span>
+    <span class="value">{{ events_total }}</span>
+    <span class="note">うち {{ blocks_total }} 回ブロック</span>
+  </a>
+</section>
+
+{% if not has_metrics %}
+<div class="notice">
+  <strong>メトリクスがまだ記録されていない。</strong>
+  <p>
+    <code>.metrics/guardrail-events.jsonl</code> はコミット時の pre-commit で生成される。
+    一度コミットすれば集計が始まる。
+  </p>
+</div>
+{% endif %}
+
+<div class="split">
+  <section>
+    <h2>よく発火しているルール</h2>
+    {% if top_rules %}
+    <table>
+      <thead><tr><th>ルールID</th><th class="num">発火</th><th>最終</th></tr></thead>
+      <tbody>
+      {% for rule in top_rules %}
+        <tr>
+          <td><code>{{ rule.rule }}</code></td>
+          <td class="num">{{ rule.hits }}</td>
+          <td class="dim">{{ rule.last_seen }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <p class="hint">繰り返し発火するルールは、検査で止めるのではなく設計で潰す候補。</p>
+    {% else %}
+    <p class="empty">まだ1件も発火していない。</p>
+    {% endif %}
+  </section>
+
+  <section>
+    <h2>一度も止めていない検査</h2>
+    {% if silent %}
+    <table>
+      <thead><tr><th>検査</th><th class="num">実行</th><th class="num">平均</th></tr></thead>
+      <tbody>
+      {% for stat in silent %}
+        <tr>
+          <td><code>{{ stat.check }}</code></td>
+          <td class="num">{{ stat.runs }}</td>
+          <td class="num dim">{{ stat.avg_ms }}ms</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <p class="hint">
+      剥がす候補だが、抑止力として効いている可能性がある。判断は人が行う。
+    </p>
+    {% else %}
+    <p class="empty">該当なし。</p>
+    {% endif %}
+  </section>
+</div>
+
+{% endblock %}

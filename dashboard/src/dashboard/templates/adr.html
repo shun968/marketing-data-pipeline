@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}ADR{% endblock %}
+{% block content %}
+
+<h1>ADR <small class="dim">{{ total }} 件</small></h1>
+<p class="hint">
+  ステータス順に並べている。最初に知りたいのは「今どの決定が有効か」であり、
+  置換済みは末尾へ置く。書式は <code>scripts/check-adr-format.sh</code> が強制している。
+</p>
+
+<div class="split-wide">
+  <nav class="side">
+    {% for status, items in groups %}
+    <h2 class="status status-{{ status }}">{{ status }} <small>{{ items | length }}</small></h2>
+    <ul class="doclist">
+      {% for item in items %}
+      <li>
+        <a href="/adr/{{ item.slug }}" class="{{ 'on' if selected and selected.slug == item.slug }}">
+          ADR-{{ item.number }} {{ item.title }}
+        </a>
+        <span class="path">
+          {{ item.date }}
+          {% if item.superseded_by %}→ {{ item.superseded_by }}{% endif %}
+        </span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="empty">ADRが無い。</p>
+    {% endfor %}
+  </nav>
+
+  <section class="doc">
+    {% if selected %}
+      <div class="adr-head">
+        <span class="status-badge status-{{ selected.status_key }}">{{ selected.status_key }}</span>
+        {% if selected.superseded_by %}
+        <span class="dim">{{ selected.superseded_by }} が置き換えた</span>
+        {% endif %}
+      </div>
+      <p class="path">{{ selected.path }}</p>
+      <article class="markdown">{{ body_html | safe }}</article>
+    {% else %}
+      <p class="empty">左からADRを選ぶ。</p>
+    {% endif %}
+  </section>
+</div>
+
+{% endblock %}
