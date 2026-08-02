@@ -1,7 +1,4 @@
 pre-commit:
-  env:
-    GUARDRAIL_CONTEXT: pre-commit
-
   # 逐次実行する。no-private-data を先頭に置き、混入を検出したら
   # 他ジョブの出力に埋もれる前に中断させる
   jobs:

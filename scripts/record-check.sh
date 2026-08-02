@@ -53,7 +53,19 @@ fi
 
 root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 LOG_PATH="${GUARDRAIL_LOG:-${root:+${root}/}.metrics/guardrail-events.jsonl}"
-CONTEXT="${GUARDRAIL_CONTEXT:-unknown}"
+# 実行の文脈。手元の作業回数とCIの実行回数を混ぜると
+# 「人が何回止められたか」が読めなくなるため分けて記録する。
+#
+# lefthook はフック名を環境変数で渡さない。gitがフック実行時に設定する
+# GIT_INDEX_FILE の有無で「フック経由か手動実行か」を見分ける。
+# CIなど明示したい場合は GUARDRAIL_CONTEXT で上書きする
+if [ -n "${GUARDRAIL_CONTEXT:-}" ]; then
+  CONTEXT="${GUARDRAIL_CONTEXT}"
+elif [ -n "${GIT_INDEX_FILE:-}" ]; then
+  CONTEXT="git-hook"
+else
+  CONTEXT="manual"
+fi
 
 stderr_file="$(mktemp)"
 trap 'rm -f "${stderr_file}"' EXIT

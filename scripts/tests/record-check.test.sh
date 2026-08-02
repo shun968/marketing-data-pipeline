@@ -11,6 +11,11 @@ SCRIPT="${REPO_ROOT}/scripts/record-check.sh"
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
+# このテスト自身が pre-commit から呼ばれる。gitがフックへ渡す GIT_INDEX_FILE が
+# 残っていると、記録先の文脈判定も、テスト内で作る使い捨てリポジトリの
+# git操作も、呼び出し元のリポジトリに引きずられる
+unset GIT_INDEX_FILE
+
 LOG=""
 
 setup() {
@@ -82,6 +87,17 @@ run_recorder mycheck true > /dev/null
 assert_eq "mycheck" "$(field check)" "検査名を記録する"
 assert_eq "test" "$(field context)" "文脈を記録する"
 assert_eq "0" "$(field exit_code)" "終了コードを記録する"
+teardown
+
+# 手元の作業回数とCIの実行回数を混ぜると「人が何回止められたか」が読めない
+setup
+GUARDRAIL_LOG="${LOG}" GIT_INDEX_FILE=/tmp/index "${SCRIPT}" x -- true > /dev/null 2>&1
+assert_eq "git-hook" "$(field context)" "gitフック経由と手動実行を区別する"
+teardown
+
+setup
+GUARDRAIL_LOG="${LOG}" "${SCRIPT}" x -- true > /dev/null 2>&1
+assert_eq "manual" "$(field context)" "手動実行はmanualとして記録する"
 teardown
 
 # ルールIDが集計の単位になる。ここが取れないとメトリクスが成立しない
