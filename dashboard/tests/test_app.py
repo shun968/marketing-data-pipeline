@@ -113,6 +113,58 @@ def test_概況にゲート数が出る(client, repo: Path) -> None:
     assert client.get("/").status_code == 200
 
 
+def test_壊れたタイムスタンプでも画面が落ちない(client, repo: Path) -> None:
+    # 1行の破損で概況・メトリクス・APIが500になっていた（指摘2）。
+    # 記録は観測であり、画面全体が見られなくなるほうが損失が大きい
+    path = repo / ".metrics" / "guardrail-events.jsonl"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        '{"ts": "2026-08-01T10:00:00+09:00", "check": "a", "exit_code": 0}\n'
+        '{"ts": "2026-08-01T11:00:00", "check": "b", "exit_code": 1}\n'
+        "これはJSONではない\n",
+        encoding="utf-8",
+    )
+    for route in ["/", "/metrics", "/api/metrics"]:
+        assert client.get(route).status_code == 200, route
+
+
+def test_未完了の実行が画面に出る(client, repo: Path) -> None:
+    # 完走したか分からない実行結果は、この用途では意味を持たない（指摘4）
+    write(
+        repo / "sns-collector" / "state" / ".logs" / "bluesky.log",
+        "[2026-08-01T09:00:00+09:00] start: bluesky\n"
+        "[bluesky:語] 取得: 1件 / 新規: 0件 / スキップ: 1件\n"
+        "HTTPエラー: 403\n"
+        "[2026-08-01T12:00:00+09:00] start: bluesky\n"
+        "[2026-08-01T12:00:30+09:00] done: bluesky\n",
+    )
+    body = client.get("/reports").text
+    assert "未完了" in body
+    assert "HTTPエラー: 403" in body
+
+
+def test_壊れたリンクがレポート配下にあっても画面が落ちない(client, repo: Path) -> None:
+    # ルート内を指す壊れたリンクで stat() が例外を投げ、
+    # レポート一覧を読む /reports と / がまとめて500になっていた
+    directory = repo / "sns-collector" / "reports"
+    directory.mkdir(parents=True)
+    write(directory / "normal.md", "# 通常")
+    (directory / "broken.md").symlink_to(directory / "missing.md")
+
+    for route in ["/", "/reports"]:
+        assert client.get(route).status_code == 200, route
+
+
+def test_ゲート一覧にフック名が出る(client, repo: Path) -> None:
+    write(
+        repo / "lefthook.yml",
+        "pre-commit:\n  jobs:\n    - name: a\n      run: ./scripts/check-a.sh\n"
+        "\ncommit-msg:\n  jobs:\n    - name: commitlint\n      run: npx commitlint\n",
+    )
+    body = client.get("/rules").text
+    assert "commit-msg" in body
+
+
 # --- bind先 ---
 
 

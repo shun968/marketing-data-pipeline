@@ -69,11 +69,27 @@ def events_path() -> Path:
     return roots().metrics / EVENTS_FILENAME
 
 
+def _normalize(ts: datetime) -> datetime:
+    """タイムゾーンを必ず付ける。
+
+    naive と aware が混ざると `sorted()` の比較が TypeError で落ち、
+    **1行の破損で画面全体(概況・メトリクス・API)が500になる。**
+    記録側は必ずオフセットを付けるが、手で編集したファイルや
+    別実装の記録が混ざる余地がある以上、読み手で吸収する。
+
+    naive は実行環境のローカル時刻とみなす。記録はローカルの
+    pre-commit で作られるため、この解釈が実態に一番近い。
+    """
+    if ts.tzinfo is None:
+        return ts.astimezone()
+    return ts
+
+
 def _parse(line: str) -> Event | None:
     try:
         raw = json.loads(line)
         return Event(
-            ts=datetime.fromisoformat(raw["ts"]),
+            ts=_normalize(datetime.fromisoformat(raw["ts"])),
             check=str(raw["check"]),
             context=str(raw.get("context", "unknown")),
             exit_code=int(raw["exit_code"]),
@@ -85,7 +101,7 @@ def _parse(line: str) -> Event | None:
         return None
 
 
-def load_events(since_days: int | None = None) -> list[Event]:
+def load_events() -> list[Event]:
     path = events_path()
     if not path.is_file():
         return []
@@ -98,12 +114,6 @@ def load_events(since_days: int | None = None) -> list[Event]:
             event = _parse(line)
             if event is not None:
                 events.append(event)
-
-    if since_days is not None:
-        threshold = datetime.now(tz=events[0].ts.tzinfo).astimezone() if events else None
-        if threshold is not None:
-            cutoff = threshold - timedelta(days=since_days)
-            events = [e for e in events if e.ts >= cutoff]
 
     events.sort(key=lambda e: e.ts)
     return events

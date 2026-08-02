@@ -30,10 +30,6 @@ class Document:
     def html(self) -> str:
         return markup.render(self.body)
 
-    @property
-    def outline(self) -> list[tuple[int, str]]:
-        return markup.outline(self.body)
-
 
 @dataclass(frozen=True)
 class Gate:
@@ -115,21 +111,90 @@ def load_documents() -> list[Document]:
     return documents
 
 
-_LEFTHOOK_JOB = re.compile(
-    r"^\s*-\s*name:\s*(?P<name>\S+)\s*$"
-    r"(?P<rest>(?:\n\s+(?!-\s*name:)\S.*)*)",
-    re.MULTILINE,
-)
-_RUN = re.compile(r"^\s+run:\s*(?P<cmd>.+?)\s*$", re.MULTILINE)
-_INTERACTIVE = re.compile(r"^\s+interactive:\s*true\s*$", re.MULTILINE)
+# lefthook のフック見出し。列0から始まる `pre-commit:` `commit-msg:` など
+_HOOK_HEADING = re.compile(r"^(?P<hook>[a-z][a-z0-9-]*):\s*$")
+
+# **ジョブの境界は `-` の有無で決まる。**
+# リスト項目(`- name:` / `- run:`)が新しいジョブの始まりで、
+# 字下げだけの `name:` / `run:` は現在のジョブの属性である。
+# ここを区別しないと、名前を持たないジョブが2つ以上並んだときに
+# 2つ目以降が現在のジョブへ吸収されて消え、`interactive` も前へ漏れる。
+_JOB_NAME = re.compile(r"^\s*-\s*name:\s*(?P<name>.+?)\s*$")
+_JOB_RUN = re.compile(r"^\s*-\s*run:\s*(?P<cmd>.+?)\s*$")
+_NAME_PROP = re.compile(r"^\s+name:\s*(?P<name>.+?)\s*$")
+_RUN_PROP = re.compile(r"^\s+run:\s*(?P<cmd>.+?)\s*$")
+_INTERACTIVE = re.compile(r"^\s*-?\s*interactive:\s*true\s*$")
 _CI_STEP = re.compile(r"^\s+-\s*name:\s*(?P<name>.+?)\s*\n\s+run:\s*(?P<cmd>.+?)\s*$", re.MULTILINE)
+
+
+def _parse_lefthook(text: str) -> list[Gate]:
+    """lefthook.yml を上から1行ずつ読み、フックごとにジョブを組み立てる。
+
+    **どのフックで動くかを取り違えない。** この画面の主眼は
+    「実際に動いているゲート」を出すことなので、実行場所を誤ると
+    目的そのものが崩れる。`prepare-commit-msg` や `commit-msg` の
+    ジョブを `pre-commit` として出さない。
+
+    YAMLパーサを入れず行単位で読むのは、ここで欲しいのが
+    「フック名・ジョブ名・コマンド」の3つだけで、
+    構造の完全な解釈が要らないため。
+    """
+    gates: list[Gate] = []
+    hook: str | None = None
+    name: str | None = None
+    command: str | None = None
+    interactive = False
+
+    def flush() -> None:
+        nonlocal name, command, interactive
+        # 名前は無くてもよい。`- run:` だけのジョブはコマンドを名前として出す
+        if hook and command:
+            gates.append(
+                Gate(name=name or command, command=command, where=hook, interactive=interactive)
+            )
+        name = None
+        command = None
+        interactive = False
+
+    for line in text.splitlines():
+        heading = _HOOK_HEADING.match(line)
+        if heading:
+            flush()
+            hook = heading.group("hook")
+            continue
+
+        job_name = _JOB_NAME.match(line)
+        if job_name:
+            flush()
+            name = job_name.group("name")
+            continue
+
+        job_run = _JOB_RUN.match(line)
+        if job_run:
+            flush()
+            command = job_run.group("cmd")
+            continue
+
+        if _INTERACTIVE.match(line):
+            interactive = True
+            continue
+
+        name_prop = _NAME_PROP.match(line)
+        if name_prop and name is None:
+            name = name_prop.group("name")
+            continue
+
+        run_prop = _RUN_PROP.match(line)
+        if run_prop and command is None:
+            command = run_prop.group("cmd")
+
+    flush()
+    return gates
 
 
 def load_gates() -> list[Gate]:
     """lefthook と CI から、実際に動いているゲートを組み立てる。
 
-    YAMLパーサを入れずに正規表現で読むのは、ここで欲しいのが
-    「名前とコマンドの対」だけで、構造の完全な解釈が要らないため。
     読めなかった行は落とすが、画面には出典のパスを併記するので
     実ファイルを開けば確認できる。
     """
@@ -138,20 +203,7 @@ def load_gates() -> list[Gate]:
 
     lefthook = root / "lefthook.yml"
     if lefthook.is_file():
-        text = lefthook.read_text(encoding="utf-8")
-        for job in _LEFTHOOK_JOB.finditer(text):
-            block = job.group("rest") or ""
-            run = _RUN.search(block)
-            if not run:
-                continue
-            gates.append(
-                Gate(
-                    name=job.group("name"),
-                    command=run.group("cmd"),
-                    where="pre-commit",
-                    interactive=bool(_INTERACTIVE.search(block)),
-                )
-            )
+        gates.extend(_parse_lefthook(lefthook.read_text(encoding="utf-8")))
 
     ci = root / ".github" / "workflows" / "ci.yml"
     if ci.is_file():

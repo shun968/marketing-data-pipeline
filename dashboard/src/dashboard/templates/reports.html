@@ -40,11 +40,19 @@
   {% if logs %}
   <div class="cards">
     {% for log in logs %}
-    <div class="card static">
+    <div class="card static {{ 'warn' if log.unfinished }}">
       <span class="label">{{ log.platform }}</span>
       <span class="value">{{ log.total_added }}<small> / {{ log.total_fetched }}</small></span>
-      <span class="note">新規 / 取得（ログ内累計）</span>
-      <span class="note dim">最終実行 {{ log.last_run or '不明' }}</span>
+      <span class="note">新規 / 取得（全 {{ log.runs | length }} 実行の累計）</span>
+      {% if log.last_run %}
+      <span class="note dim">
+        最終 {{ log.last_run.started_at or '不明' }}
+        {% if not log.last_run.finished %}<span class="tag warn">未完了</span>{% endif %}
+      </span>
+      {% endif %}
+      {% if log.unfinished %}
+      <span class="note strong">完走しなかった実行 {{ log.unfinished }} 件</span>
+      {% endif %}
     </div>
     {% endfor %}
   </div>
@@ -52,24 +60,45 @@
   {% for log in logs %}
   <h3>{{ log.platform }} <small class="path">{{ log.path }}</small></h3>
   {% if log.truncated %}
-  <p class="hint">直近の行のみ表示している（ログは追記され続けるため）。</p>
+  <p class="hint">
+    直近 {{ log.display_runs | length }} 実行のみ表示している（全 {{ log.runs | length }} 実行）。
+    <strong>上の累計は全実行を対象に集計している。</strong>
+  </p>
   {% endif %}
   <div class="logbox">
-    <table class="log">
-      <thead><tr><th>実行</th><th>キーワード</th><th class="num">取得</th><th class="num">新規</th></tr></thead>
-      <tbody>
-      {% for entry in log.entries %}
-        {% if entry.keyword %}
-        <tr class="{{ 'hit' if entry.added and entry.added > 0 }}">
-          <td class="dim">{{ entry.started_at or '' }}</td>
-          <td>{{ entry.keyword }}</td>
-          <td class="num">{{ entry.fetched }}</td>
-          <td class="num">{{ entry.added }}</td>
-        </tr>
+    {% for run in log.display_runs %}
+    <details class="run {{ 'unfinished' if not run.finished }}" {{ 'open' if loop.first }}>
+      <summary>
+        <span class="ts">{{ run.started_at or '開始行なし' }}</span>
+        {% if run.finished %}
+          <span class="ok">完走</span>
+        {% else %}
+          <span class="tag warn">未完了</span>
         {% endif %}
-      {% endfor %}
-      </tbody>
-    </table>
+        <span class="dim">取得 {{ run.fetched }} / 新規 {{ run.added }}</span>
+      </summary>
+      {% if run.results %}
+      <table class="log">
+        <thead><tr><th>キーワード</th><th class="num">取得</th><th class="num">新規</th><th class="num">スキップ</th></tr></thead>
+        <tbody>
+        {% for result in run.results %}
+          <tr class="{{ 'hit' if result.added > 0 }}">
+            <td>{{ result.keyword }}</td>
+            <td class="num">{{ result.fetched }}</td>
+            <td class="num">{{ result.added }}</td>
+            <td class="num dim">{{ result.skipped }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+      {% if run.notes %}
+      <ul class="notes">
+        {% for note in run.notes %}<li>{{ note }}</li>{% endfor %}
+      </ul>
+      {% endif %}
+    </details>
+    {% endfor %}
   </div>
   {% endfor %}
   {% else %}
@@ -83,6 +112,8 @@
   <p class="hint">
     新規獲得の少ない順。新規0件が続く語は改訂候補になる
     （設計原則は <code>sns-collector/README.md</code>）。
+    <strong>全実行を対象に集計している</strong>——表示範囲で絞ると
+    古いログ区間にしか出ない語が消え、改訂の判断を誤らせる。
   </p>
   <table>
     <thead>
