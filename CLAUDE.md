@@ -10,7 +10,7 @@ SNS上の投稿から市場の潜在的な顧客要望・製品優位性を継�
 
 ```
 sns-collector/data/     収集した生データ・DB     ← 絶対にコミットしない
-sns-collector/state/    SeenStore・ログ・ロック   ← 絶対にコミットしない
+sns-collector/state/    ログ・ロック              ← 絶対にコミットしない
 sns-collector/reports/  生成レポート             ← 絶対にコミットしない
 sns-collector/.env      APIキー                  ← 絶対にコミットしない
 .metrics/               ガードレール抵触の記録     ← 絶対にコミットしない
@@ -53,7 +53,7 @@ sns-collector/            収集ツール（Python 3.11+ / uv）
   src/sns_collector/
     common/http.py        全HTTPリクエストの仲介。ペーシングと再試行
     common/config.py      設定ロード
-    common/seen_store.py  重複排除（Phase 1でDBへ統合予定）
+    db/                   分析ストア（DuckDB）。スキーマ・正規化・ロード
     bluesky/ youtube/     プラットフォーム別のclient/search/models
   tests/                  単体テストのみ。実API通信は行わない
 Taskfile.yml              開発タスク（lint / GitHub設定）

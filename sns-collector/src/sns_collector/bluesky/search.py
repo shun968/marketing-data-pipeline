@@ -6,17 +6,25 @@ from pathlib import Path
 import requests
 
 from ..common.config import BlueskyConfig
-from ..common.seen_store import SeenStore
 from ..common.storage import append_jsonl
+from ..db import connect, insert_records, known_ids
 from .client import search_posts
 from .models import BlueskyPost
 
 
-def run(config: BlueskyConfig, data_dir: Path, state_path: Path) -> None:
+def run(config: BlueskyConfig, data_dir: Path, db_path: Path) -> None:
+    # 重複判定はDBの posts に一本化した（ADR-0004）。SeenStore と違い
+    # 60日で捨てないため、61日後に同じ投稿を取り直すことがない。
+    with connect(db_path) as conn:
+        _run_with_db(config, data_dir, conn)
+
+
+def _run_with_db(config: BlueskyConfig, data_dir: Path, conn) -> None:
     today = datetime.now(UTC).date()
     collected_at = datetime.now(UTC)
 
-    seen_store = SeenStore(state_path, today=today)
+    # 起動時に1回だけ引く。1件ずつ問い合わせると、キーワード数×件数のクエリになる
+    seen = known_ids(conn, "bluesky")
     run_seen: set[str] = set()
     failed_keywords: list[str] = []
     total_new = 0
@@ -44,7 +52,7 @@ def run(config: BlueskyConfig, data_dir: Path, state_path: Path) -> None:
                 print(f"  [bluesky:{keyword}] 不正な投稿をスキップ: {e}")
                 continue
 
-            if post.post_id in run_seen or not seen_store.is_new(post.post_id):
+            if post.post_id in run_seen or post.post_id in seen:
                 skip_count += 1
                 continue
             run_seen.add(post.post_id)
@@ -52,13 +60,14 @@ def run(config: BlueskyConfig, data_dir: Path, state_path: Path) -> None:
 
         # キーワード単位で保存する。ここでまとめずrun末尾に持ち越すと、
         # 以降のキーワードで予期しない例外が出た際に収集済みの全件を失う。
-        # JSONLを先に書き、成功してからSeenStoreへ記録する。逆順にすると
-        # 書き込み前にプロセスが落ちた場合、その投稿を二度と収集できなくなる。
+        # JSONLを先に書き、成功してからDBへ入れる。逆順にすると
+        # 書き込み前にプロセスが落ちた場合、その投稿を二度と収集できなくなる
+        # （DBに既知として記録済みなのでスキップされる）。
         if new_posts:
-            output_path = append_jsonl([p.to_dict() for p in new_posts], data_dir, today)
-            for post in new_posts:
-                seen_store.mark_seen(post.post_id)
-            seen_store.save()
+            records = [p.to_dict() for p in new_posts]
+            output_path = append_jsonl(records, data_dir, today)
+            insert_records(conn, "bluesky", records)
+            seen.update(p.post_id for p in new_posts)
             total_new += len(new_posts)
 
         message = (

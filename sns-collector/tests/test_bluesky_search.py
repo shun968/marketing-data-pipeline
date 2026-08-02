@@ -32,10 +32,10 @@ FAKE_POST = {
 def test_run_writes_new_posts_and_skips_duplicates(tmp_path: Path):
     config = BlueskyConfig(sort="latest", limit_per_keyword=50, keywords=["新規事業"])
     data_dir = tmp_path / "data"
-    state_path = tmp_path / "state" / "bluesky_seen.json"
+    db_path = tmp_path / "data" / "analysis.duckdb"
 
     with patch("sns_collector.bluesky.search.search_posts", return_value=[FAKE_POST]):
-        bluesky_search.run(config, data_dir=data_dir, state_path=state_path)
+        bluesky_search.run(config, data_dir=data_dir, db_path=db_path)
 
     output_files = list(data_dir.glob("*.jsonl"))
     assert len(output_files) == 1
@@ -48,7 +48,7 @@ def test_run_writes_new_posts_and_skips_duplicates(tmp_path: Path):
 
     # 2回目の実行では既知の投稿としてスキップされ、新規追記は発生しない
     with patch("sns_collector.bluesky.search.search_posts", return_value=[FAKE_POST]):
-        bluesky_search.run(config, data_dir=data_dir, state_path=state_path)
+        bluesky_search.run(config, data_dir=data_dir, db_path=db_path)
 
     lines_after = output_files[0].read_text(encoding="utf-8").splitlines()
     assert len(lines_after) == 1
@@ -60,7 +60,7 @@ def test_failed_keyword_does_not_discard_other_results(tmp_path: Path):
         sort="latest", limit_per_keyword=50, keywords=["成功する語", "失敗する語"]
     )
     data_dir = tmp_path / "data"
-    state_path = tmp_path / "state" / "bluesky_seen.json"
+    db_path = tmp_path / "data" / "analysis.duckdb"
 
     def fake_search(keyword: str, *_args):
         if keyword == "失敗する語":
@@ -68,13 +68,13 @@ def test_failed_keyword_does_not_discard_other_results(tmp_path: Path):
         return [FAKE_POST]
 
     with patch("sns_collector.bluesky.search.search_posts", side_effect=fake_search):
-        bluesky_search.run(config, data_dir=data_dir, state_path=state_path)
+        bluesky_search.run(config, data_dir=data_dir, db_path=db_path)
 
     output_files = list(data_dir.glob("*.jsonl"))
     assert len(output_files) == 1
     lines = output_files[0].read_text(encoding="utf-8").splitlines()
     assert len(lines) == 1, "失敗したキーワードより前の収集結果が保存されていない"
-    assert state_path.exists(), "SeenStoreが保存されていない"
+    assert db_path.exists(), "分析DBが作られていない"
 
 
 def test_unexpected_exception_does_not_discard_saved_results(tmp_path: Path):
@@ -85,7 +85,7 @@ def test_unexpected_exception_does_not_discard_saved_results(tmp_path: Path):
     """
     config = BlueskyConfig(sort="latest", limit_per_keyword=50, keywords=["成功する語", "壊れる語"])
     data_dir = tmp_path / "data"
-    state_path = tmp_path / "state" / "bluesky_seen.json"
+    db_path = tmp_path / "data" / "analysis.duckdb"
 
     def fake_search(keyword: str, *_args):
         if keyword == "壊れる語":
@@ -96,7 +96,7 @@ def test_unexpected_exception_does_not_discard_saved_results(tmp_path: Path):
         patch("sns_collector.bluesky.search.search_posts", side_effect=fake_search),
         pytest.raises(RuntimeError),
     ):
-        bluesky_search.run(config, data_dir=data_dir, state_path=state_path)
+        bluesky_search.run(config, data_dir=data_dir, db_path=db_path)
 
     output_files = list(data_dir.glob("*.jsonl"))
     assert len(output_files) == 1, "例外の前に収集した分がディスクに書かれていない"
@@ -111,7 +111,7 @@ def test_malformed_post_is_skipped_without_losing_others(tmp_path: Path):
     """
     config = BlueskyConfig(sort="latest", limit_per_keyword=50, keywords=["キーワード"])
     data_dir = tmp_path / "data"
-    state_path = tmp_path / "state" / "bluesky_seen.json"
+    db_path = tmp_path / "data" / "analysis.duckdb"
 
     broken_post = {k: v for k, v in FAKE_POST.items() if k != "uri"}
     other_post = {**FAKE_POST, "uri": "at://did:plc:abc123/app.bsky.feed.post/other"}
@@ -120,7 +120,7 @@ def test_malformed_post_is_skipped_without_losing_others(tmp_path: Path):
         "sns_collector.bluesky.search.search_posts",
         return_value=[broken_post, FAKE_POST, other_post],
     ):
-        bluesky_search.run(config, data_dir=data_dir, state_path=state_path)
+        bluesky_search.run(config, data_dir=data_dir, db_path=db_path)
 
     output_files = list(data_dir.glob("*.jsonl"))
     assert len(output_files) == 1
@@ -132,9 +132,9 @@ def test_no_new_posts_does_not_create_empty_file(tmp_path: Path):
     """新規がゼロのとき、空のJSONLを作らない。"""
     config = BlueskyConfig(sort="latest", limit_per_keyword=50, keywords=["キーワード"])
     data_dir = tmp_path / "data"
-    state_path = tmp_path / "state" / "bluesky_seen.json"
+    db_path = tmp_path / "data" / "analysis.duckdb"
 
     with patch("sns_collector.bluesky.search.search_posts", return_value=[]):
-        bluesky_search.run(config, data_dir=data_dir, state_path=state_path)
+        bluesky_search.run(config, data_dir=data_dir, db_path=db_path)
 
     assert list(data_dir.glob("*.jsonl")) == []
