@@ -224,6 +224,25 @@ rm state/bluesky_seen.json state/youtube_seen.json
 
 JSONLに残っている投稿はすべてDBへ入るため、SeenStoreを読み直す必要はない。ロード後にSeenStoreを消しても、既知判定は失われない。
 
+### 構造化抽出
+
+投稿から「未充足ニーズ／不満」を構造化して `insights` へ入れる。パイプラインからLLMは呼ばず、バッチファイルの受け渡しでClaude Codeセッションが担う（ADR-0003）。
+
+```sh
+uv run sns-collector extract prepare --limit 20   # バッチと作業指示を書き出す
+# → Claude Codeセッションで <batch-id>.md を読ませて実行
+uv run sns-collector extract load <batch-id>      # 検証してDBへ
+uv run sns-collector extract status               # 待ち件数・未取り込みバッチ
+```
+
+**対象は既定でBlueskyのみ。** YouTubeは供給シグナルであり、動画メタデータへ需要シグナルの抽出を掛けてもほぼ `none` にしかならない。含めるなら `--platform youtube`。
+
+取り出す順は収集日の新しい順。投稿日の古い順だと、初回収集で遡った2009年の動画から処理することになる。
+
+抽出プロンプトは `prompts/extract-v1.md`。バージョンは `insights.extractor_version` に記録され、`--version` で切り替える。改訂したら新しい版として足し、既存の版は消さない（どの版で抽出したかを後から辿るため）。
+
+**検証を通らなかった行は `<batch-id>.errors.jsonl` へ隔離され、該当投稿は `batched` のまま残る。** 次回の `prepare` では拾われないので、再抽出するには結果ファイルを直して `load` をやり直す。
+
 ### バックアップ
 
 DBは単一ファイルなので、コピーで完結する（N-07）。
