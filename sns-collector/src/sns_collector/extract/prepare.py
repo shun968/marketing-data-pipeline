@@ -48,6 +48,44 @@ def prompt_path(version: str) -> Path:
 DEFAULT_PLATFORMS = ("bluesky",)
 
 
+def _read_template(version: str) -> str:
+    path = prompt_path(version)
+    if not path.exists():
+        available = sorted(
+            p.stem.removeprefix("extract-") for p in PROMPTS_DIR.glob("extract-*.md")
+        )
+        raise FileNotFoundError(
+            f"抽出プロンプトが無い: {path}（利用できる版: {', '.join(available) or 'なし'}）"
+        )
+    return path.read_text(encoding="utf-8")
+
+
+def skip_unextractable(conn: duckdb.DuckDBPyConnection) -> int:
+    """本文の無い投稿を skipped へ落とす。落とした件数を返す。
+
+    バッチの選択から外すだけだと pending に残り続け、どのバッチにも載らないのに
+    「抽出待ち」として数え続けられる（実測57件）。待ち件数が実態とずれ、
+    進捗の判断ができなくなる。
+
+    text は db load のたびにJSONLから入れ直されるため、原理上は後から本文が
+    埋まることもありうる。その場合は手動で pending へ戻す。
+    """
+    before = conn.execute(
+        "SELECT count(*) FROM posts WHERE extraction_status = 'skipped'"
+    ).fetchone()[0]
+    conn.execute(
+        """
+        UPDATE posts SET extraction_status = 'skipped'
+        WHERE extraction_status = 'pending'
+          AND (text IS NULL OR length(trim(text)) = 0)
+        """
+    )
+    after = conn.execute(
+        "SELECT count(*) FROM posts WHERE extraction_status = 'skipped'"
+    ).fetchone()[0]
+    return after - before
+
+
 def prepare(
     conn: duckdb.DuckDBPyConnection,
     extract_dir: Path,
@@ -59,8 +97,17 @@ def prepare(
     now: datetime | None = None,
 ) -> PrepareResult | None:
     """未抽出の投稿をバッチへ書き出す。対象が無ければ None。"""
+    if not platforms:
+        raise ValueError("platforms を1つ以上指定する")
+
+    # テンプレートの読み込みを先に済ませる。ファイルを書いた後で失敗すると、
+    # どのバッチにも属さないJSONLが extract/ に残る
+    template = _read_template(version)
+
     now = now or datetime.now(UTC)
     batch_id = _batch_id(now)
+
+    skip_unextractable(conn)
 
     # 新しく収集したものから出す。
     # 投稿日の古い順にすると、初回収集で遡った過去分（最古は2009年）から処理する
@@ -103,7 +150,6 @@ def prepare(
 
     write_jsonl(records, batch_path)
 
-    template = prompt_path(version).read_text(encoding="utf-8")
     instruction_path.write_text(
         template.replace("{batch_jsonl}", str(batch_path))
         .replace("{result_jsonl}", str(result_path))
@@ -112,18 +158,29 @@ def prepare(
     )
 
     # ファイルを書いてから状態を進める。逆順にすると、書き込み前に落ちた投稿が
-    # batched のまま残り、どのバッチにも入っていない宙ぶらりんになる
-    conn.executemany(
-        "UPDATE posts SET extraction_status = 'batched' WHERE id = ?",
-        [[pid] for pid in post_ids],
-    )
-    conn.execute(
-        """
-        INSERT INTO extraction_batches (batch_id, created_at, post_count, extractor_version)
-        VALUES (?, ?, ?, ?)
-        """,
-        [batch_id, now.replace(tzinfo=None), len(records), version],
-    )
+    # batched のまま残り、どのバッチにも入っていない宙ぶらりんになる。
+    #
+    # 状態更新と台帳登録は1トランザクションにする。片方だけ通ると、
+    # 「batched だがどのバッチにも属さない」または「台帳にあるが投稿は pending」
+    # という状態が生まれる。後者は次の prepare が同じ投稿を別バッチへ載せるため、
+    # 同じ投稿を2回抽出することになる。
+    conn.execute("BEGIN TRANSACTION")
+    try:
+        conn.executemany(
+            "UPDATE posts SET extraction_status = 'batched' WHERE id = ?",
+            [[pid] for pid in post_ids],
+        )
+        conn.execute(
+            """
+            INSERT INTO extraction_batches (batch_id, created_at, post_count, extractor_version)
+            VALUES (?, ?, ?, ?)
+            """,
+            [batch_id, now.replace(tzinfo=None), len(records), version],
+        )
+        conn.execute("COMMIT")
+    except BaseException:
+        conn.execute("ROLLBACK")
+        raise
 
     return PrepareResult(
         batch_id=batch_id,

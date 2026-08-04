@@ -192,6 +192,11 @@ def main(argv: list[str] | None = None) -> int:
     except ConfigError as e:
         print(f"設定エラー: {e}", file=sys.stderr)
         return 1
+    except (FileNotFoundError, ValueError) as e:
+        # 指定ミス（存在しないプロンプト版・未登録のバッチID・引数の不整合）は
+        # 利用者が直せる。トレースバックを出さず、何が足りないかだけを見せる
+        print(f"エラー: {e}", file=sys.stderr)
+        return 1
     except duckdb.IOException as e:
         # DuckDBはプロセス間で書き込みを排他する。cronの収集と手動実行が
         # 重なると素のトレースバックで落ちるため、次に何をすべきかを出す

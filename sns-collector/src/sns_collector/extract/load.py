@@ -48,8 +48,12 @@ class LoadResult:
     errors_path: Path | None
 
 
-def _batch_post_ids(conn: duckdb.DuckDBPyConnection, batch_path: Path) -> set[str]:
-    """バッチに含まれていた post_id。ハルシネーション検出の照合元。"""
+def _batch_post_ids(batch_path: Path) -> set[str]:
+    """バッチに含まれていた post_id。ハルシネーション検出の照合元。
+
+    DBの batched ではなくバッチファイルを正とする。セッションが実際に読んだのは
+    このファイルであり、照合はその内容に対して行うのが筋である。
+    """
     ids = set()
     with batch_path.open(encoding="utf-8") as f:
         for line in f:
@@ -83,7 +87,7 @@ def load(
         raise ValueError(f"未登録のバッチ: {batch_id}")
     version = version_row[0]
 
-    expected = _batch_post_ids(conn, batch_path)
+    expected = _batch_post_ids(batch_path)
     seen: set[str] = set()
     accepted: list[Insight] = []
     errors: list[dict] = []

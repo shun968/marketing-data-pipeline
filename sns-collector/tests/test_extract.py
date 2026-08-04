@@ -323,3 +323,82 @@ def test_新しく収集したものから出す(tmp_path: Path):
 
         ids = [json.loads(x)["id"] for x in result.batch_path.read_text().splitlines()]
         assert ids == ["bluesky:new_collect"], "収集が新しいものが先に来ていない"
+
+
+# ── レビュー指摘への回帰テスト ──────────────────────────────────────────
+
+
+def test_本文の無い投稿はskippedへ落とす(tmp_path: Path):
+    """pending に残すと、どのバッチにも載らないのに待ち件数へ数え続けられる。
+
+    実データで57件あり、待ち件数が実態とずれて進捗を判断できなくなっていた。
+    """
+    with connect(tmp_path / "analysis.duckdb") as conn:
+        insert_records(
+            conn,
+            "bluesky",
+            [
+                {**BLUESKY_RECORD, "post_id": "empty", "text": "   "},
+                {**BLUESKY_RECORD, "post_id": "ok"},
+            ],
+        )
+
+        prepare(conn, tmp_path / "extract", limit=10, version="v1", domain_ids=sorted(DOMAINS))
+
+        assert status(conn)["posts"] == {"batched": 1, "skipped": 1}
+
+
+def test_本文が無い投稿しか無ければバッチを作らない(tmp_path: Path):
+    with connect(tmp_path / "analysis.duckdb") as conn:
+        insert_records(conn, "bluesky", [{**BLUESKY_RECORD, "post_id": "empty", "text": ""}])
+
+        assert (
+            prepare(conn, tmp_path / "extract", limit=10, version="v1", domain_ids=["other"])
+            is None
+        )
+        assert status(conn)["posts"] == {"skipped": 1}
+
+
+def test_存在しないプロンプト版ではファイルを1つも書かない(tmp_path: Path):
+    """ファイルを書いた後で失敗すると、どのバッチにも属さないJSONLが残る。"""
+    extract_dir = tmp_path / "extract"
+    with connect(tmp_path / "analysis.duckdb") as conn:
+        insert_records(conn, "bluesky", [BLUESKY_RECORD])
+
+        with pytest.raises(FileNotFoundError, match="利用できる版"):
+            prepare(conn, extract_dir, limit=10, version="v99", domain_ids=["other"])
+
+        assert not extract_dir.exists() or list(extract_dir.iterdir()) == []
+        assert conn.execute("SELECT extraction_status FROM posts").fetchone()[0] == "pending"
+
+
+def test_台帳登録が失敗したら投稿の状態も戻す(tmp_path: Path):
+    """片方だけ通ると、次の prepare が同じ投稿を別バッチへ載せて二重抽出になる。"""
+    with connect(tmp_path / "analysis.duckdb") as conn:
+        insert_records(conn, "bluesky", [BLUESKY_RECORD])
+        fixed = datetime(2026, 8, 5, 12, 0, tzinfo=UTC)
+        prepare(conn, tmp_path / "extract", limit=10, version="v1", domain_ids=["other"], now=fixed)
+        conn.execute("UPDATE posts SET extraction_status = 'pending'")
+
+        # 同じ時刻 = 同じ batch_id。台帳の主キー衝突で INSERT が落ちる
+        with pytest.raises(Exception):  # noqa: B017 - duckdbの例外型に依存しない
+            prepare(
+                conn, tmp_path / "extract", limit=10, version="v1", domain_ids=["other"], now=fixed
+            )
+
+        assert conn.execute("SELECT extraction_status FROM posts").fetchone()[0] == "pending", (
+            "台帳が入らなかったのに投稿だけ batched になっている"
+        )
+
+
+def test_platformsが空なら早期に拒否する(tmp_path: Path):
+    with connect(tmp_path / "analysis.duckdb") as conn:
+        with pytest.raises(ValueError, match="platforms"):
+            prepare(
+                conn,
+                tmp_path / "extract",
+                limit=10,
+                version="v1",
+                domain_ids=["other"],
+                platforms=(),
+            )
