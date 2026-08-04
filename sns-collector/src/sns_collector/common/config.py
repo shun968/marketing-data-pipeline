@@ -68,3 +68,19 @@ def load_youtube_config(path: Path, env_path: Path | None = None) -> YouTubeConf
         relevance_language=raw.get("relevance_language", "ja"),
         keywords=list(keywords),
     )
+
+
+def load_domain_ids(path: Path) -> list[str]:
+    """config/domains.yaml の統制語彙。抽出結果の domain はこの範囲に限る。
+
+    ここを読まずに列挙をコード側へ書くと、YAMLとコードの二重管理になる。
+    """
+    raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    domains = raw.get("domains")
+    if not isinstance(domains, list) or not domains:
+        raise ConfigError(f"domains が空、または配列でない: {path}")
+
+    ids = [d.get("id") for d in domains if isinstance(d, dict)]
+    if not all(isinstance(i, str) and i for i in ids):
+        raise ConfigError(f"id を持たないドメイン定義がある: {path}")
+    return ids
