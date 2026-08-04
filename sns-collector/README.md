@@ -239,7 +239,15 @@ uv run sns-collector extract status               # 待ち件数・未取り込�
 
 取り出す順は収集日の新しい順。投稿日の古い順だと、初回収集で遡った2009年の動画から処理することになる。
 
-抽出プロンプトは `prompts/extract-v1.md`。バージョンは `insights.extractor_version` に記録され、`--version` で切り替える。改訂したら新しい版として足し、既存の版は消さない（どの版で抽出したかを後から辿るため）。
+抽出プロンプトは `prompts/extract-v2.md`（既定）。バージョンは `insights.extractor_version` に記録され、`--version` で切り替える。改訂したら新しい版として足し、既存の版は消さない（どの版で抽出したかを後から辿るため）。
+
+プロンプトを改訂したら、旧版で抽出した投稿を取り直せる。
+
+```sh
+uv run sns-collector extract prepare --reextract v1   # v1で抽出済みを pending へ戻して選ぶ
+```
+
+旧版の `insights` は消さない。新版で取り込んだときに上書きされるため、途中で中断しても結果が残る。
 
 **検証を通らなかった行は `<batch-id>.errors.jsonl` へ隔離され、該当投稿は `batched` のまま残る。** 次回の `prepare` では拾われないので、再抽出するには結果ファイルを直して `load` をやり直す。
 

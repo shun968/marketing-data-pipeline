@@ -10,7 +10,7 @@ Claude Codeセッションへの作業指示Markdownを書く。
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -30,8 +30,21 @@ class PrepareResult:
     instruction_path: Path
 
 
-def _batch_id(now: datetime) -> str:
-    return f"batch-{now:%Y%m%d-%H%M%S}"
+def _batch_id(conn: duckdb.DuckDBPyConnection, now: datetime) -> tuple[str, datetime]:
+    """未使用の batch_id を返す。
+
+    IDは秒までしか持たない（design.md §3.4 の書式）。同じ秒に2回 prepare すると
+    主キー衝突で落ちるため、空いている秒まで進める。書式を変えないのは、
+    IDから作成時刻が読めることを保ちたいため。
+    """
+    while True:
+        candidate = f"batch-{now:%Y%m%d-%H%M%S}"
+        exists = conn.execute(
+            "SELECT 1 FROM extraction_batches WHERE batch_id = ?", [candidate]
+        ).fetchone()
+        if exists is None:
+            return candidate, now
+        now = now + timedelta(seconds=1)
 
 
 def prompt_path(version: str) -> Path:
@@ -86,6 +99,25 @@ def skip_unextractable(conn: duckdb.DuckDBPyConnection) -> int:
     return after - before
 
 
+def reopen_for_reextraction(conn: duckdb.DuckDBPyConnection, version: str) -> int:
+    """指定した版で抽出した投稿を pending へ戻す。戻した件数を返す。
+
+    プロンプトを改訂したとき、旧版の結果を新版で取り直すための経路
+    （design.md §4.3 再抽出）。`insights` の行は消さない。新版で取り込んだ
+    ときに上書きされるため、途中で中断しても旧版の結果が残る。
+    """
+    conn.execute(
+        """
+        UPDATE posts SET extraction_status = 'pending'
+        WHERE id IN (SELECT post_id FROM insights WHERE extractor_version = ?)
+        """,
+        [version],
+    )
+    return conn.execute(
+        "SELECT count(*) FROM insights WHERE extractor_version = ?", [version]
+    ).fetchone()[0]
+
+
 def prepare(
     conn: duckdb.DuckDBPyConnection,
     extract_dir: Path,
@@ -94,6 +126,7 @@ def prepare(
     version: str,
     domain_ids: list[str],
     platforms: tuple[str, ...] | list[str] = DEFAULT_PLATFORMS,
+    reextract: str | None = None,
     now: datetime | None = None,
 ) -> PrepareResult | None:
     """未抽出の投稿をバッチへ書き出す。対象が無ければ None。"""
@@ -105,7 +138,10 @@ def prepare(
     template = _read_template(version)
 
     now = now or datetime.now(UTC)
-    batch_id = _batch_id(now)
+    batch_id, now = _batch_id(conn, now)
+
+    if reextract:
+        reopen_for_reextraction(conn, reextract)
 
     skip_unextractable(conn)
 

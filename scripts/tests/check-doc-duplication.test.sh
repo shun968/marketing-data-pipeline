@@ -129,6 +129,25 @@ printf '#!/usr/bin/env bash\n# %s\n' "${LONG}" > b.sh
 assert_exit 0 "誤検知しない: 未追跡ファイルは対象外"
 teardown
 
+# バージョン付きプロンプトは版ごとに独立した成果物で、改訂しても旧版を残す。
+# v2がv1の大半を引き継ぐのは正常な状態であり、止めてはいけない
+setup
+mkdir -p sns-collector/prompts
+printf '# v1\n\n%s\n' "${LONG}" > sns-collector/prompts/extract-v1.md
+printf '# v2\n\n%s\n' "${LONG}" > sns-collector/prompts/extract-v2.md
+git add sns-collector/prompts
+assert_exit 0 "誤検知しない: バージョン付きプロンプトどうしの重複"
+teardown
+
+# 除外はプロンプト間に限る。プロンプトの文言を他のドキュメントへ書き写したら止める
+setup
+mkdir -p sns-collector/prompts docs
+printf '# v1\n\n%s\n' "${LONG}" > sns-collector/prompts/extract-v1.md
+printf '# 設計\n\n%s\n' "${LONG}" > docs/design.md
+git add sns-collector/prompts docs
+assert_exit 1 "検知: プロンプトの文言が別のドキュメントにもある"
+teardown
+
 # --- リポジトリ自身 ---
 
 # 検査を足した本人が真っ先に違反する。実リポジトリで通ることを確かめる

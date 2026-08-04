@@ -20,6 +20,8 @@ set -euo pipefail
 #   行末に `dup-ok: <理由>` を書いた行は対象外にする。
 #   意図的に同じ文言を置く必要がある場合のため。
 #
+#   バージョン付きプロンプトどうしの重複も許す（理由は下の判定部にある）。
+#
 # 使い方:
 #   scripts/check-doc-duplication.sh
 #
@@ -44,8 +46,20 @@ mapfile -d '' -t targets < "${list_file}"
 
 # 各行を `正規化した文<TAB>ファイル:行番号` の形へ落とし、
 # 同じ文が2つ以上のファイルに出るものを重複とみなす
+#
+# バージョン付きプロンプト(sns-collector/prompts/extract-*.md)どうしの重複は許す。
+# 版ごとに独立した成果物で、改訂しても旧版を残す（どの版で抽出したかを
+# insights.extractor_version から辿るため）。v2がv1の大半を引き継ぐのは正常である。
+#
+# **対象から外すのではなく、プロンプト間の組み合わせだけを許す。** 外してしまうと、
+# プロンプトの文言を設計書などへ書き写しても検出できない穴ができる。
+#
+# `dup-ok:` で個別に許可しない理由: プロンプトは抽出セッションへそのまま渡される
+# ファイルであり、注釈を入れると指示文に混ざって読ませてしまう。
 duplicates="$(
   awk -v min_len="${MIN_LENGTH}" '
+    function is_prompt(f) { return f ~ /(^|\/)sns-collector\/prompts\/extract-[^\/]*\.md$/ }
+
     FNR == 1 { in_fence = 0 }
 
     # Markdownのコードフェンス内は散文ではない
@@ -77,6 +91,7 @@ duplicates="$(
       key = line
       if (!(key in seen_file)) { seen_file[key] = FILENAME; seen_loc[key] = FILENAME ":" FNR; next }
       if (seen_file[key] == FILENAME) next
+      if (is_prompt(seen_file[key]) && is_prompt(FILENAME)) next
       if (!(key in reported)) {
         reported[key] = 1
         print seen_loc[key] "\t" FILENAME ":" FNR "\t" substr($0, 1, 100)

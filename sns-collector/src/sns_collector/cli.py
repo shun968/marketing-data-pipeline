@@ -71,7 +71,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ex_prepare.add_argument("--db", type=Path, default=None)
     ex_prepare.add_argument("--domains", type=Path, default=DEFAULT_DOMAINS_PATH)
     ex_prepare.add_argument("--limit", type=int, default=20, help="1バッチの件数")
-    ex_prepare.add_argument("--version", default="v1", help="抽出プロンプトのバージョン")
+    ex_prepare.add_argument("--version", default="v2", help="抽出プロンプトのバージョン")
+    ex_prepare.add_argument(
+        "--reextract",
+        metavar="VERSION",
+        help="この版で抽出済みの投稿を pending へ戻してから選ぶ",
+    )
     ex_prepare.add_argument(
         "--platform",
         action="append",
@@ -145,6 +150,7 @@ def _run_extract(args: argparse.Namespace) -> int:
                 version=args.version,
                 domain_ids=domain_ids,
                 platforms=tuple(args.platform) if args.platform else DEFAULT_PLATFORMS,
+                reextract=args.reextract,
             )
             if result is None:
                 print("抽出待ちの投稿はありません")
