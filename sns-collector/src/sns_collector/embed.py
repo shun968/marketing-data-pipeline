@@ -32,6 +32,46 @@ class EmbedResult:
     dimension: int | None
 
 
+def corpus_model(conn: duckdb.DuckDBPyConnection) -> str | None:
+    """既存の埋め込みが使っているモデル名。1件も無ければ None。
+
+    複数ある場合は最初の1つではなく例外にする。混在は次元不一致で
+    `list_cosine_similarity` を落とすため、どちらを正とも決められない。
+    """
+    rows = conn.execute(
+        "SELECT DISTINCT embedding_model FROM insights WHERE embedding IS NOT NULL"
+    ).fetchall()
+    names = sorted(r[0] for r in rows if r[0] is not None)
+
+    if not names:
+        return None
+    if len(names) > 1:
+        raise ValueError(
+            f"埋め込みモデルが混在している: {', '.join(names)}。"
+            "UPDATE insights SET embedding = NULL, embedding_model = NULL; の後に埋め込み直すこと。"
+        )
+    return names[0]
+
+
+def ensure_model_matches(conn: duckdb.DuckDBPyConnection, model_name: str) -> None:
+    """要求モデルが既存コーパスと一致するか。しなければ ValueError。
+
+    **次元の違うモデルを混ぜると search が壊れる。** `list_cosine_similarity` は
+    長さの違うリストを受け取ると InvalidInputException を投げる。これは
+    `cli.py` のどのハンドラにも掛からず素のトレースバックになるため、
+    ここで先に止めて直し方を出す。`embedding_model` 列はこの検査のために在る。
+    """
+    current = corpus_model(conn)
+    if current is None or current == model_name:
+        return
+
+    raise ValueError(
+        f"既存の埋め込みは {current} で作られており、{model_name} とは次元が異なりうる。"
+        "同じモデルを指定するか、UPDATE insights SET embedding = NULL, "
+        "embedding_model = NULL; の後に埋め込み直すこと。"
+    )
+
+
 def _default_embedder(model_name: str) -> Embedder:
     from fastembed import TextEmbedding
 
@@ -56,6 +96,8 @@ def embed(
     変わらない（冪等）。`embedder` を注入しない場合のみ実モデルを構築するので、
     テストは実モデルのダウンロードなしに決定的な埋め込み関数を渡せる。
     """
+    ensure_model_matches(conn, model_name)
+
     rows = conn.execute(
         """
         SELECT post_id, summary FROM insights

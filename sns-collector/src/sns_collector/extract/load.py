@@ -21,6 +21,11 @@ if TYPE_CHECKING:  # pragma: no cover - 型注釈のためだけに読む
 
 # 同じ投稿を再抽出したら上書きする。extractor_version を上げた際の
 # 入れ直し（design.md §4.3 再抽出）がこれで成立する
+#
+# **要約が変わったら埋め込みを捨てる。** embed は `embedding IS NULL` の行しか
+# 拾わないため、ここで消さないと新しい要約に対して古い本文のベクトルが
+# 残り続け、以後どの実行でも更新されない。検索順位が旧版の要約で決まる。
+# 要約が同じときに消さないのは、再埋め込みが無駄になるだけだからである。
 _UPSERT = """
 INSERT INTO insights (
     post_id, insight_type, domain, summary, pain_level,
@@ -36,7 +41,15 @@ ON CONFLICT (post_id) DO UPDATE SET
     competitors       = excluded.competitors,
     confidence        = excluded.confidence,
     extractor_version = excluded.extractor_version,
-    extracted_at      = excluded.extracted_at
+    extracted_at      = excluded.extracted_at,
+    embedding         = CASE
+        WHEN insights.summary IS DISTINCT FROM excluded.summary THEN NULL
+        ELSE insights.embedding
+    END,
+    embedding_model   = CASE
+        WHEN insights.summary IS DISTINCT FROM excluded.summary THEN NULL
+        ELSE insights.embedding_model
+    END
 """
 
 

@@ -289,6 +289,8 @@ uv run sns-collector search "セットアップ" --platform bluesky --since 2026
 
 **モデルを変更する場合**、既存の埋め込みと新しいモデルのベクトルが混在すると `list_cosine_similarity` が壊れる。切り替える前に全件をリセットしてから `embed` をやり直す。
 
+リセットを忘れた場合は `embed` と `search` が実行前に拒否する（`embed.ensure_model_matches`）。**手順の記憶に頼らせない。** 混在させてしまうと `search` が例外で落ちるだけで、どの行が古いモデルなのかは表示されない。
+
 ```sh
 uv run python -c "
 import duckdb
