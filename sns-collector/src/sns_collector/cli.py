@@ -7,7 +7,9 @@ from pathlib import Path
 
 import duckdb
 
+from . import embed as embed_mod
 from . import extract as extract_mod
+from . import search as search_mod
 from .bluesky import search as bluesky_search
 from .common.config import (
     ConfigError,
@@ -46,6 +48,14 @@ def _iso_date(value: str) -> date:
         return date.fromisoformat(value)
     except ValueError as e:
         raise argparse.ArgumentTypeError(f"YYYY-MM-DD 形式で指定する: {value}") from e
+
+
+def _bool_arg(value: str) -> bool:
+    if value.lower() in ("true", "1", "yes"):
+        return True
+    if value.lower() in ("false", "0", "no"):
+        return False
+    raise argparse.ArgumentTypeError(f"true/false で指定する: {value}")
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -119,6 +129,30 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     kw_quality.add_argument("--platform", required=True, choices=list(COLLECTORS))
     kw_quality.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
     kw_quality.add_argument("--db", type=Path, default=None)
+
+    em = sub.add_parser("embed", help="insightsのsummaryをベクトル化する")
+    em.add_argument("--limit", type=int, default=500, help="1回の実行での対象件数")
+    em.add_argument("--model", default=embed_mod.DEFAULT_MODEL, help="埋め込みモデル名")
+    em.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
+    em.add_argument("--db", type=Path, default=None)
+
+    se = sub.add_parser("search", help="自然言語クエリで意味検索する")
+    se.add_argument("query")
+    se.add_argument("--type", dest="insight_type", default=None, help="insight_typeで絞り込む")
+    se.add_argument("--domain", default=None, help="domainで絞り込む")
+    se.add_argument(
+        "--pain-level", type=int, choices=[0, 1, 2, 3], default=None, help="pain_levelで絞り込む"
+    )
+    se.add_argument(
+        "--monetizable", type=_bool_arg, default=None, help="monetizableで絞り込む(true/false)"
+    )
+    se.add_argument("--platform", choices=list(COLLECTORS), default=None, help="platformで絞り込む")
+    se.add_argument("--since", type=_iso_date, default=None, help="この投稿日以降を対象にする")
+    se.add_argument("--text", default=None, help="投稿本文の部分一致(全文検索)")
+    se.add_argument("--limit", type=int, default=20, help="上位何件を返すか")
+    se.add_argument("--model", default=embed_mod.DEFAULT_MODEL, help="埋め込みモデル名")
+    se.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
+    se.add_argument("--db", type=Path, default=None)
 
     return parser.parse_args(argv)
 
@@ -214,6 +248,44 @@ def _run_keywords(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_embed(args: argparse.Namespace) -> int:
+    with connect(_db_path(args)) as conn:
+        result = embed_mod.embed(conn, limit=args.limit, model_name=args.model)
+
+    if result.embedded == 0:
+        print("埋め込み待ちの投稿はありません")
+        return 0
+    print(f"埋め込み: {result.embedded}件（モデル: {result.model}, 次元: {result.dimension}）")
+    return 0
+
+
+def _run_search(args: argparse.Namespace) -> int:
+    with connect(_db_path(args)) as conn:
+        hits = search_mod.search(
+            conn,
+            args.query,
+            model_name=args.model,
+            insight_type=args.insight_type,
+            domain=args.domain,
+            pain_level=args.pain_level,
+            monetizable=args.monetizable,
+            platform=args.platform,
+            since=args.since,
+            text=args.text,
+            limit=args.limit,
+        )
+
+    if not hits:
+        print("該当する投稿はありません（未埋め込みの投稿はヒットしない）")
+        return 0
+
+    for hit in hits:
+        print(f"[{hit.score:.3f}] {hit.platform} {hit.insight_type}/{hit.domain or '-'}")
+        print(f"  {hit.summary}")
+        print(f"  pain_level={hit.pain_level} monetizable={hit.monetizable} {hit.url or ''}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
 
@@ -226,6 +298,12 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.command == "keywords":
             return _run_keywords(args)
+
+        if args.command == "embed":
+            return _run_embed(args)
+
+        if args.command == "search":
+            return _run_search(args)
 
         if args.command in COLLECTORS:
             module, load_config = COLLECTORS[args.command]
