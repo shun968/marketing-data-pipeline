@@ -217,6 +217,34 @@ def test_再取り込みで洞察を上書きする(prepared):
     assert conn.execute("SELECT pain_level FROM insights").fetchone()[0] == 3
 
 
+def test_要約が変わったら埋め込みを捨てる(prepared):
+    """embed は embedding IS NULL しか拾わない。ここで消さないと古いベクトルが残り続ける。"""
+    conn, extract_dir, result = prepared
+    _write_result(extract_dir, result.batch_id, [_valid(summary="元の要約")])
+    load(conn, extract_dir, result.batch_id, allowed_domains=DOMAINS)
+    conn.execute("UPDATE insights SET embedding = [1.0, 2.0], embedding_model = 'model-a'")
+
+    _write_result(extract_dir, result.batch_id, [_valid(summary="直した要約")])
+    load(conn, extract_dir, result.batch_id, allowed_domains=DOMAINS)
+
+    row = conn.execute("SELECT embedding, embedding_model FROM insights").fetchone()
+    assert row == (None, None)
+
+
+def test_要約が同じなら埋め込みを残す(prepared):
+    """誤検知しないこと。再取り込みのたびに再埋め込みさせない。"""
+    conn, extract_dir, result = prepared
+    _write_result(extract_dir, result.batch_id, [_valid(summary="同じ要約")])
+    load(conn, extract_dir, result.batch_id, allowed_domains=DOMAINS)
+    conn.execute("UPDATE insights SET embedding = [1.0, 2.0], embedding_model = 'model-a'")
+
+    _write_result(extract_dir, result.batch_id, [_valid(summary="同じ要約", pain_level=3)])
+    load(conn, extract_dir, result.batch_id, allowed_domains=DOMAINS)
+
+    row = conn.execute("SELECT embedding, embedding_model, pain_level FROM insights").fetchone()
+    assert row == ([1.0, 2.0], "model-a", 3)
+
+
 def test_未登録のバッチは拒否する(prepared):
     conn, extract_dir, _ = prepared
     (extract_dir / "batch-99999999-000000.jsonl").write_text("", encoding="utf-8")

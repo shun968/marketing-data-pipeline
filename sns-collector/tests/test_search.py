@@ -172,3 +172,40 @@ def test_絞り込み条件に一致すれば含める(conn):
     )
 
     assert [h.post_id for h in hits] == ["p1"]
+
+
+def test_コーパスと違うモデルを指定したら一行のエラーにする(conn):
+    """duckdbのInvalidInputExceptionはcli.pyのどのハンドラにも掛からない。
+
+    素のトレースバックを出さず、直し方の分かるValueErrorへ変換する。
+    """
+    _insert_post(
+        conn,
+        post_id="a",
+        platform="bluesky",
+        url="https://example.com/a",
+        text="投稿",
+        posted_at=datetime(2026, 8, 1),
+    )
+    _insert_insight(conn, post_id="a", embedding=[1.0, 0.0, 0.0])
+    conn.execute("UPDATE insights SET embedding_model = 'model-a'")
+
+    with pytest.raises(ValueError, match="model-a"):
+        search(conn, "クエリ", model_name="model-b", embedder=_fake_embedder([1.0, 0.0]))
+
+
+def test_コーパスと同じモデルなら検索できる(conn):
+    """誤検知しないこと。"""
+    _insert_post(
+        conn,
+        post_id="a",
+        platform="bluesky",
+        url="https://example.com/a",
+        text="投稿",
+        posted_at=datetime(2026, 8, 1),
+    )
+    _insert_insight(conn, post_id="a", embedding=[1.0, 0.0, 0.0])
+    conn.execute("UPDATE insights SET embedding_model = 'model-a'")
+
+    hits = search(conn, "クエリ", model_name="model-a", embedder=_fake_embedder([1.0, 0.0, 0.0]))
+    assert [h.post_id for h in hits] == ["a"]

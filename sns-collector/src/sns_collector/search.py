@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import TYPE_CHECKING
 
-from .embed import DEFAULT_MODEL, Embedder, embed_query
+from .embed import DEFAULT_MODEL, Embedder, embed_query, ensure_model_matches
 
 if TYPE_CHECKING:  # pragma: no cover - 型注釈のためだけに読む
     import duckdb
@@ -49,7 +49,12 @@ def search(
     埋め込みが無い行（`insights.embedding IS NULL`）はヒットしない。
     クエリは `insights.embedding` と同じモデルで埋め込む必要がある
     （ADR-0002: モデルを変えた場合は全件の再埋め込みが要る）。
+
+    **モデルの照合は埋め込みを作る前に行う。** 実モデルの構築は数十秒かかり、
+    どうせ落ちるものを待たせない。
     """
+    ensure_model_matches(conn, model_name)
+
     query_vector = embed_query(query, model_name=model_name, embedder=embedder)
 
     conditions = ["i.embedding IS NOT NULL"]
