@@ -29,6 +29,13 @@ class YouTubeConfig:
     keywords: list[str]
 
 
+@dataclass(frozen=True)
+class HackerNewsConfig:
+    tags: str
+    hits_per_page: int
+    keywords: list[str]
+
+
 def _load_keywords_file(path: Path) -> dict:
     return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
 
@@ -66,6 +73,21 @@ def load_youtube_config(path: Path, env_path: Path | None = None) -> YouTubeConf
         max_results_per_keyword=int(raw.get("max_results_per_keyword", 25)),
         region_code=raw.get("region_code", "JP"),
         relevance_language=raw.get("relevance_language", "ja"),
+        keywords=list(keywords),
+    )
+
+
+def load_hackernews_config(path: Path) -> HackerNewsConfig:
+    raw = _load_keywords_file(path).get("hackernews", {})
+    keywords = raw.get("keywords", [])
+    if not keywords:
+        raise ConfigError(f"{path} に hackernews.keywords が定義されていません。")
+
+    return HackerNewsConfig(
+        # Algoliaのtagsは括弧が無いとAND(=story かつ comment を同時に満たす、
+        # 常に0件)になる。"(story,comment)"のようにOR対象を括弧で囲む必要がある
+        tags=raw.get("tags", "(story,comment)"),
+        hits_per_page=int(raw.get("hits_per_page", 50)),
         keywords=list(keywords),
     )
 

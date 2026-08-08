@@ -42,8 +42,8 @@
 
 ```
                               ┌───────────────────────────┐
-  Bluesky / YouTube API       │  data/{platform}/*.jsonl  │
-        │                     │        （生データ）        │
+  Bluesky / YouTube /         │  data/{platform}/*.jsonl  │
+  Hacker News API             │        （生データ）        │
         └──── collect ───────▶│                           │
              （cron・自動）    └─────────────┬─────────────┘
                                             │
@@ -88,9 +88,9 @@
 | カラム | 型 | 説明 |
 |---|---|---|
 | `id` | VARCHAR PK | `{platform}:{native_id}` 形式の一意キー |
-| `platform` | VARCHAR | `bluesky` / `youtube` |
-| `native_id` | VARCHAR | プラットフォーム固有ID（Bluesky: URI、YouTube: videoId） |
-| `author_id` | VARCHAR | 投稿者の安定ID（Bluesky: DID、YouTube: channelId） |
+| `platform` | VARCHAR | `bluesky` / `youtube` / `hackernews` |
+| `native_id` | VARCHAR | プラットフォーム固有ID（Bluesky: URI、YouTube: videoId、Hacker News: objectID） |
+| `author_id` | VARCHAR | 投稿者の安定ID（Bluesky: DID、YouTube: channelId、Hacker News: ユーザー名） |
 | `author_handle` | VARCHAR | 表示用ハンドル |
 | `text` | VARCHAR | 本文（YouTubeはタイトル＋説明文を結合） |
 | `url` | VARCHAR | 元投稿へのURL |
@@ -169,7 +169,7 @@
 
 | コマンド | 自動化 | 説明 |
 |---|---|---|
-| `sns-collector bluesky` / `youtube` | cron | 既存。収集してJSONLへ追記 |
+| `sns-collector bluesky` / `youtube` / `hackernews` | cron | 既存。収集してJSONLへ追記 |
 | `sns-collector db init` | — | スキーマ作成・マイグレーション |
 | `sns-collector db load [--since DATE]` | cron | JSONL→DB投入（冪等） |
 | `sns-collector extract prepare [--limit N]` | cron | 未抽出投稿をバッチファイルへ書き出し |
@@ -196,7 +196,7 @@
 
 `extraction_status='pending'` の投稿から `--limit` 件を取り出し、2つのファイルを書き出す。
 
-**対象は既定でBlueskyのみ**（`--platform` で変更できる）。YouTubeは供給シグナルであり、検索できるのは動画のメタデータに限られる（§4.1）。そこへ需要シグナルの抽出を掛けても構造的にほぼ `none` にしかならない。実測では、最初のバッチ20件のうち18件がYouTubeの製品デモで、全件 `none` だった。供給側の分析は§4.6のレポートで別途行う。
+**対象は既定でBluesky・Hacker Newsの需要シグナル系のみ**（`--platform` で変更できる）。YouTubeは供給シグナルであり、検索できるのは動画のメタデータに限られる（§4.1）。そこへ需要シグナルの抽出を掛けても構造的にほぼ `none` にしかならない。実測では、最初のバッチ20件のうち18件がYouTubeの製品デモで、全件 `none` だった。供給側の分析は§4.6のレポートで別途行う。Hacker Newsはコメント・Ask HN投稿という生の本文が取れる点でBlueskyと同種であり、既定に含める（ADR-0006）。
 
 **取り出す順は収集日の新しい順。** 投稿日の古い順にすると、初回収集で遡った過去分（最古は2009年）から処理することになり、現在のキーワード設計と対応しない投稿にセッション時間を使う。
 

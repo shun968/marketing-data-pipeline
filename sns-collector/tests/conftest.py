@@ -34,6 +34,22 @@ YOUTUBE_RECORD = {
     "raw": {"id": {"videoId": "abc123"}},
 }
 
+HACKERNEWS_RECORD = {
+    "item_id": "49217777",
+    "keyword": '"jetson nano"',
+    "text": "困っている\nJetson Nanoでの推論が遅い",
+    "title": "困っている",
+    "item_type": "comment",
+    "author": "someone",
+    "points": 3,
+    "num_comments": 0,
+    "story_id": "49216362",
+    "created_at": "2026-08-08T00:33:37Z",
+    "url": "https://news.ycombinator.com/item?id=49217777",
+    "collected_at": "2026-08-08T00:00:00+00:00",
+    "raw": {"objectID": "49217777", "_tags": ["comment"]},
+}
+
 
 @pytest.fixture
 def bluesky_record() -> dict:
@@ -43,3 +59,8 @@ def bluesky_record() -> dict:
 @pytest.fixture
 def youtube_record() -> dict:
     return dict(YOUTUBE_RECORD)
+
+
+@pytest.fixture
+def hackernews_record() -> dict:
+    return dict(HACKERNEWS_RECORD)

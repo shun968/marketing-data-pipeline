@@ -131,4 +131,35 @@ def from_youtube(record: dict[str, Any]) -> PostRow:
     )
 
 
-ADAPTERS = {"bluesky": from_bluesky, "youtube": from_youtube}
+def from_hackernews(record: dict[str, Any]) -> PostRow:
+    native_id = _required(record, "item_id")
+    keyword = record.get("keyword")
+
+    return PostRow(
+        id=f"hackernews:{native_id}",
+        platform="hackernews",
+        native_id=native_id,
+        # HNにはハンドルと別の安定IDが無い。ユーザー名自体が変わらない識別子
+        author_id=record.get("author") or None,
+        author_handle=record.get("author") or None,
+        text=record.get("text", ""),
+        url=record.get("url") or None,
+        # Algolia検索APIは言語を返さない
+        lang=None,
+        posted_at=_parse_timestamp(record.get("created_at")),
+        collected_at=_parse_timestamp(record.get("collected_at")),
+        matched_keywords=[keyword] if isinstance(keyword, str) and keyword else [],
+        metrics=json.dumps(
+            {
+                "points": record.get("points", 0),
+                "num_comments": record.get("num_comments", 0),
+                "item_type": record.get("item_type"),
+                "story_id": record.get("story_id"),
+            },
+            ensure_ascii=False,
+        ),
+        raw=json.dumps(record.get("raw") or record, ensure_ascii=False),
+    )
+
+
+ADAPTERS = {"bluesky": from_bluesky, "youtube": from_youtube, "hackernews": from_hackernews}
