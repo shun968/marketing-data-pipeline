@@ -175,6 +175,7 @@
 | `sns-collector extract prepare [--limit N]` | cron | 未抽出投稿をバッチファイルへ書き出し |
 | `sns-collector extract load <batch-id>` | 手動 | 抽出結果を検証してDBへ投入 |
 | `sns-collector extract status` | — | 抽出待ち件数・未取り込みバッチの一覧 |
+| `sns-collector keywords quality --platform P` | — | キーワード改訂支援。困りごと表現の代理指標を集計（正式な判定は抽出に委ねる） |
 | `sns-collector embed [--limit N]` | cron | 未埋め込みの `summary` をベクトル化 |
 | `sns-collector graph rebuild` | cron | `edges` を再構築 |
 | `sns-collector search <query> [options]` | 手動 | 意味検索＋SQL絞り込み |

@@ -196,6 +196,14 @@ YouTube側は2026-07-29の実測で9キーワードすべてが的確であり�
 
 キーワードを追加・変更したら実データをサンプリングして質を確認し、`config/keywords.yaml`の改訂履歴に根拠を残すこと。
 
+質の確認（キーワード単位の件数・困りごと表現を含む割合の代理指標）は以下で集計できる。
+
+```sh
+uv run sns-collector keywords quality --platform bluesky
+```
+
+**これは正式な判定ではない。** 正規表現による粗い代理指標であり、`insight_type` / `pain_level` の確定判定は構造化抽出（`extract prepare` → Claude Codeセッション → `extract load`）に委ねる。キーワードの採否を判断する前段の目安として使うこと。
+
 ## 手動実行
 
 ```sh
