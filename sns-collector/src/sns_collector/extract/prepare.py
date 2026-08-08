@@ -105,13 +105,18 @@ def reopen_for_reextraction(conn: duckdb.DuckDBPyConnection, version: str) -> in
     プロンプトを改訂したとき、旧版の結果を新版で取り直すための経路
     （design.md §4.3 再抽出）。`insights` の行は消さない。新版で取り込んだ
     ときに上書きされるため、途中で中断しても旧版の結果が残る。
+
+    **対象は done に限る。** 状態を問わず戻すと、まだ取り込んでいないバッチの
+    投稿（batched）まで引き抜かれ、同じ投稿が2つのバッチに載る。再抽出は
+    「バッチ作成 → 抽出 → 取り込み」の繰り返しなので、取り込む前にもう一度
+    実行する状況は現実に起きる。
     """
     # 実際に状態が変わる件数を先に数える。`insights` の行数を返すと、
     # 既に pending だったものまで「戻した」ことになって嘘になる
     reopened = conn.execute(
         """
         SELECT count(*) FROM posts
-        WHERE extraction_status <> 'pending'
+        WHERE extraction_status = 'done'
           AND id IN (SELECT post_id FROM insights WHERE extractor_version = ?)
         """,
         [version],
@@ -119,7 +124,8 @@ def reopen_for_reextraction(conn: duckdb.DuckDBPyConnection, version: str) -> in
     conn.execute(
         """
         UPDATE posts SET extraction_status = 'pending'
-        WHERE id IN (SELECT post_id FROM insights WHERE extractor_version = ?)
+        WHERE extraction_status = 'done'
+          AND id IN (SELECT post_id FROM insights WHERE extractor_version = ?)
         """,
         [version],
     )
@@ -196,6 +202,18 @@ def _prepare_in_transaction(
     # ことになり、現在のキーワード設計と対応しない投稿にセッション時間を使う。
     # 収集日で並べれば、いま効いているキーワードが拾ったものから順に見られる。
     placeholders = ", ".join("?" for _ in platforms)
+    params: list[str | int] = [*platforms]
+
+    # 再抽出を指定したら、その版で抽出した投稿だけを対象にする。
+    # 戻すだけだと未抽出の投稿と同じ土俵に並び、収集日順では新しいものに
+    # 押し出される。実測では20件中12件しか再抽出対象が入らなかった。
+    # 「この版を取り直す」という指定が、取り直しにならない。
+    reextract_filter = ""
+    if reextract:
+        reextract_filter = "AND id IN (SELECT post_id FROM insights WHERE extractor_version = ?)"
+        params.append(reextract)
+    params.append(limit)
+
     rows = conn.execute(
         f"""
         SELECT id, platform, text, posted_at, matched_keywords
@@ -203,10 +221,11 @@ def _prepare_in_transaction(
         WHERE extraction_status = 'pending'
           AND platform IN ({placeholders})
           AND text IS NOT NULL AND length(trim(text)) > 0
+          {reextract_filter}
         ORDER BY collected_at DESC NULLS LAST, id
         LIMIT ?
         """,
-        [*platforms, limit],
+        params,
     ).fetchall()
 
     if not rows:

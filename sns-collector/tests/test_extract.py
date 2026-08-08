@@ -540,3 +540,62 @@ def test_再抽出の戻り値は実際に状態が変わった件数(tmp_path: 
 
         assert reopen_for_reextraction(conn, "v1") == 1
         assert reopen_for_reextraction(conn, "v1") == 0, "既に pending のものを数えている"
+
+
+def test_reextract指定時は対象をその版に限る(tmp_path: Path):
+    """戻すだけだと未抽出の投稿と同じ土俵に並び、収集日順で押し出される。
+
+    実測では20件中12件しか再抽出対象が入らず、「取り直す」指定が
+    取り直しにならなかった。
+    """
+    extract_dir = tmp_path / "extract"
+    with connect(tmp_path / "analysis.duckdb") as conn:
+        # v1で抽出済み（収集は古い）と、未抽出（収集は新しい）を混ぜる
+        insert_records(
+            conn,
+            "bluesky",
+            [{**BLUESKY_RECORD, "post_id": "old", "collected_at": "2026-08-01T00:00:00+00:00"}],
+        )
+        first = prepare(conn, extract_dir, limit=10, version="v1", domain_ids=sorted(DOMAINS))
+        _write_result(extract_dir, first.batch_id, [_valid(post_id="bluesky:old")])
+        load(conn, extract_dir, first.batch_id, allowed_domains=DOMAINS)
+        insert_records(
+            conn,
+            "bluesky",
+            [{**BLUESKY_RECORD, "post_id": "new", "collected_at": "2026-08-08T00:00:00+00:00"}],
+        )
+
+        result = prepare(
+            conn, extract_dir, limit=10, version="v2", domain_ids=sorted(DOMAINS), reextract="v1"
+        )
+
+        ids = [json.loads(x)["id"] for x in result.batch_path.read_text().splitlines()]
+        assert ids == ["bluesky:old"], "再抽出対象以外が混ざっている"
+
+
+def test_未取り込みバッチの投稿は再抽出で引き抜かない(tmp_path: Path):
+    """状態を問わず戻すと、同じ投稿が2つのバッチに載る。
+
+    再抽出は「バッチ作成 → 抽出 → 取り込み」の繰り返しなので、
+    取り込む前にもう一度実行する状況は現実に起きる。
+    """
+    extract_dir = tmp_path / "extract"
+    with connect(tmp_path / "analysis.duckdb") as conn:
+        insert_records(conn, "bluesky", [BLUESKY_RECORD])
+        first = prepare(conn, extract_dir, limit=5, version="v1", domain_ids=["other"])
+        _write_result(extract_dir, first.batch_id, [_valid()])
+        load(conn, extract_dir, first.batch_id, allowed_domains=DOMAINS)
+
+        second = prepare(
+            conn, extract_dir, limit=5, version="v2", domain_ids=["other"], reextract="v1"
+        )
+        assert second is not None
+
+        # second を取り込まないまま、もう一度 --reextract v1 を叩く
+        third = prepare(
+            conn, extract_dir, limit=5, version="v2", domain_ids=["other"], reextract="v1"
+        )
+
+        assert third is None, "未取り込みバッチの投稿が引き抜かれている"
+        unloaded = [b[0] for b in status(conn)["unloaded_batches"]]
+        assert unloaded == [second.batch_id]
