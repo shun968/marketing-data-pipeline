@@ -99,35 +99,48 @@ def skip_unextractable(conn: duckdb.DuckDBPyConnection) -> int:
     return after - before
 
 
-def reopen_for_reextraction(conn: duckdb.DuckDBPyConnection, version: str) -> int:
-    """指定した版で抽出した投稿を pending へ戻す。戻した件数を返す。
+def reopen_for_reextraction(
+    conn: duckdb.DuckDBPyConnection,
+    version: str,
+    platforms: tuple[str, ...] | list[str],
+) -> int:
+    """指定した版で抽出した投稿のうち、対象プラットフォームのものを pending へ戻す。
 
-    プロンプトを改訂したとき、旧版の結果を新版で取り直すための経路
-    （design.md §4.3 再抽出）。`insights` の行は消さない。新版で取り込んだ
+    戻した件数を返す。プロンプトを改訂したとき、旧版の結果を新版で取り直すための
+    経路（design.md §4.3 再抽出）。`insights` の行は消さない。新版で取り込んだ
     ときに上書きされるため、途中で中断しても旧版の結果が残る。
 
     **対象は done に限る。** 状態を問わず戻すと、まだ取り込んでいないバッチの
     投稿（batched）まで引き抜かれ、同じ投稿が2つのバッチに載る。再抽出は
     「バッチ作成 → 抽出 → 取り込み」の繰り返しなので、取り込む前にもう一度
     実行する状況は現実に起きる。
+
+    **プラットフォームで絞る。** 選択側（後段のクエリ）は `platforms` に無い
+    投稿を拾わない。ここで絞らずに全プラットフォームを戻すと、選択に乗らない
+    プラットフォームの投稿が pending のまま孤立する。既定が Bluesky のみの
+    ため、`--reextract v1` を素朴に実行すると YouTube の該当投稿が
+    巻き添えで戻り、二度と拾われない状態で残っていた（実測18件）。
     """
+    placeholders = ", ".join("?" for _ in platforms)
     # 実際に状態が変わる件数を先に数える。`insights` の行数を返すと、
     # 既に pending だったものまで「戻した」ことになって嘘になる
     reopened = conn.execute(
-        """
+        f"""
         SELECT count(*) FROM posts
         WHERE extraction_status = 'done'
+          AND platform IN ({placeholders})
           AND id IN (SELECT post_id FROM insights WHERE extractor_version = ?)
         """,
-        [version],
+        [*platforms, version],
     ).fetchone()[0]
     conn.execute(
-        """
+        f"""
         UPDATE posts SET extraction_status = 'pending'
         WHERE extraction_status = 'done'
+          AND platform IN ({placeholders})
           AND id IN (SELECT post_id FROM insights WHERE extractor_version = ?)
         """,
-        [version],
+        [*platforms, version],
     )
     return reopened
 
@@ -195,7 +208,7 @@ def _prepare_in_transaction(
     now: datetime,
 ) -> PrepareResult | None:
     if reextract:
-        reopen_for_reextraction(conn, reextract)
+        reopen_for_reextraction(conn, reextract, platforms)
 
     # 新しく収集したものから出す。
     # 投稿日の古い順にすると、初回収集で遡った過去分（最古は2009年）から処理する

@@ -15,7 +15,7 @@ from sns_collector.extract import (
     status,
     validate,
 )
-from tests.conftest import BLUESKY_RECORD
+from tests.conftest import BLUESKY_RECORD, YOUTUBE_RECORD
 
 DOMAINS = frozenset({"ai_accuracy", "edge_ai", "fabrication", "other"})
 
@@ -538,8 +538,42 @@ def test_再抽出の戻り値は実際に状態が変わった件数(tmp_path: 
         _write_result(extract_dir, first.batch_id, [_valid()])
         load(conn, extract_dir, first.batch_id, allowed_domains=DOMAINS)
 
-        assert reopen_for_reextraction(conn, "v1") == 1
-        assert reopen_for_reextraction(conn, "v1") == 0, "既に pending のものを数えている"
+        assert reopen_for_reextraction(conn, "v1", ("bluesky",)) == 1
+        assert reopen_for_reextraction(conn, "v1", ("bluesky",)) == 0, (
+            "既に pending のものを数えている"
+        )
+
+
+def test_reopen_for_reextractionは対象外プラットフォームを戻さない(tmp_path: Path):
+    """プラットフォームで絞らずに戻すと、選択に乗らないプラットフォームの投稿が
+    pending のまま孤立する。既定が Bluesky のみのため、`--reextract v1` を
+    素朴に実行すると YouTube の投稿が巻き添えで pending へ落ち、
+    二度と拾われない状態で残っていた（実測18件、issue #3）。
+    """
+    extract_dir = tmp_path / "extract"
+    with connect(tmp_path / "analysis.duckdb") as conn:
+        insert_records(conn, "bluesky", [BLUESKY_RECORD])
+        insert_records(conn, "youtube", [YOUTUBE_RECORD])
+        first = prepare(
+            conn,
+            extract_dir,
+            limit=10,
+            version="v1",
+            domain_ids=sorted(DOMAINS),
+            platforms=("bluesky", "youtube"),
+        )
+        _write_result(
+            extract_dir,
+            first.batch_id,
+            [_valid(), _valid(post_id=f"youtube:{YOUTUBE_RECORD['video_id']}")],
+        )
+        load(conn, extract_dir, first.batch_id, allowed_domains=DOMAINS)
+
+        # 既定は Bluesky のみ。YouTube の done は触られてはならない
+        assert reopen_for_reextraction(conn, "v1", ("bluesky",)) == 1
+        statuses = dict(conn.execute("SELECT platform, extraction_status FROM posts").fetchall())
+        assert statuses["youtube"] == "done", "対象外プラットフォームが pending へ巻き添えになった"
+        assert statuses["bluesky"] == "pending"
 
 
 def test_reextract指定時は対象をその版に限る(tmp_path: Path):
