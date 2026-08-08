@@ -102,7 +102,14 @@ def load_documents() -> list[Document]:
             if doc:
                 documents.append(doc)
 
-    design_docs = (("design.md", "設計"), ("requirements.md", "要件"), ("roadmap.md", "実装計画"))
+    # architecture.md はMermaidを含み、この画面ではコードブロックのまま出る。
+    # 描画のためにJSを持ち込まない方針を優先し、読めない図より読める本文を出す
+    design_docs = (
+        ("architecture.md", "システム構成"),
+        ("design.md", "設計"),
+        ("requirements.md", "要件"),
+        ("roadmap.md", "実装計画"),
+    )
     for name, title in design_docs:
         doc = _document(roots().docs / name, f"docs-{Path(name).stem}", title)
         if doc:

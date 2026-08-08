@@ -77,6 +77,32 @@ def test_CLAUDEmdとスキルを集める(repo: Path) -> None:
     assert slugs == ["root", "area-sns-collector", "skill-adr"]
 
 
+def test_設計ドキュメントを集める(repo: Path) -> None:
+    write(repo / "docs" / "architecture.md", "# システム構成")
+    write(repo / "docs" / "design.md", "# 設計")
+    write(repo / "docs" / "requirements.md", "# 要件")
+    write(repo / "docs" / "roadmap.md", "# 実装計画")
+    slugs = [d.slug for d in rules.load_documents()]
+    assert slugs == ["docs-architecture", "docs-design", "docs-requirements", "docs-roadmap"]
+
+
+def test_設計ドキュメントが揃っていなくても残りを出す(repo: Path) -> None:
+    """初回clone直後や、片方だけ先に書いた状態でも画面を落とさない。"""
+    write(repo / "docs" / "design.md", "# 設計")
+    slugs = [d.slug for d in rules.load_documents()]
+    assert slugs == ["docs-design"]
+
+
+def test_Mermaidを含む本文をそのまま持つ(repo: Path) -> None:
+    """描画はしないが、図の定義を落として本文を欠けさせない。"""
+    write(
+        repo / "docs" / "architecture.md",
+        "# システム構成\n\n```mermaid\nflowchart LR\n  a-->b\n```\n",
+    )
+    body = next(d.body for d in rules.load_documents() if d.slug == "docs-architecture")
+    assert "flowchart LR" in body
+
+
 def test_lefthookからゲートを組み立てる(repo: Path) -> None:
     write(
         repo / "lefthook.yml",
