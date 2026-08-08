@@ -6,6 +6,7 @@ from .prepare import (
     PrepareResult,
     prepare,
     prompt_path,
+    reopen_for_reextraction,
     skip_unextractable,
 )
 from .schema import INSIGHT_TYPES, Insight, ValidationError, validate
@@ -20,6 +21,7 @@ __all__ = [
     "load",
     "prepare",
     "prompt_path",
+    "reopen_for_reextraction",
     "skip_unextractable",
     "status",
     "validate",
