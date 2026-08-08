@@ -571,3 +571,31 @@ def test_reextract指定時は対象をその版に限る(tmp_path: Path):
 
         ids = [json.loads(x)["id"] for x in result.batch_path.read_text().splitlines()]
         assert ids == ["bluesky:old"], "再抽出対象以外が混ざっている"
+
+
+def test_未取り込みバッチの投稿は再抽出で引き抜かない(tmp_path: Path):
+    """状態を問わず戻すと、同じ投稿が2つのバッチに載る。
+
+    再抽出は「バッチ作成 → 抽出 → 取り込み」の繰り返しなので、
+    取り込む前にもう一度実行する状況は現実に起きる。
+    """
+    extract_dir = tmp_path / "extract"
+    with connect(tmp_path / "analysis.duckdb") as conn:
+        insert_records(conn, "bluesky", [BLUESKY_RECORD])
+        first = prepare(conn, extract_dir, limit=5, version="v1", domain_ids=["other"])
+        _write_result(extract_dir, first.batch_id, [_valid()])
+        load(conn, extract_dir, first.batch_id, allowed_domains=DOMAINS)
+
+        second = prepare(
+            conn, extract_dir, limit=5, version="v2", domain_ids=["other"], reextract="v1"
+        )
+        assert second is not None
+
+        # second を取り込まないまま、もう一度 --reextract v1 を叩く
+        third = prepare(
+            conn, extract_dir, limit=5, version="v2", domain_ids=["other"], reextract="v1"
+        )
+
+        assert third is None, "未取り込みバッチの投稿が引き抜かれている"
+        unloaded = [b[0] for b in status(conn)["unloaded_batches"]]
+        assert unloaded == [second.batch_id]
