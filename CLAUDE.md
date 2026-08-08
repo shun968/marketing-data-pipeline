@@ -2,7 +2,7 @@
 
 SNS上の投稿から市場の潜在的な顧客要望・製品優位性を継続的に収集・構造化し、個人開発の事業仮説を立てるためのローカル分析基盤。
 
-設計の全体像は `docs/design.md` を参照する（冒頭から requirements / roadmap / adr へ辿れる）。技術選定の判断根拠は `docs/adr/` にある。
+システム構成は `docs/architecture.md` を参照する（C4モデル。外部サービス・通信プロトコル・ハードウェア境界）。設計の全体像は `docs/design.md` にあり、冒頭から requirements / roadmap / adr へ辿れる。技術選定の判断根拠は `docs/adr/` にある。
 
 ## 最重要ルール
 
@@ -30,7 +30,7 @@ sns-collector/.env      APIキー                  ← 絶対にコミットし�
 
 ```
 .claude/skills/           作業手順（adr など）。該当作業に入ったら従う
-docs/                     設計ドキュメント（requirements / design / roadmap / adr）
+docs/                     設計ドキュメント（architecture / requirements / design / roadmap / adr）
 scripts/                  リポジトリ共通スクリプト（規約チェック / lint / コミットメッセージ補助）
   check-no-private-data.sh  収集データ・秘匿情報の混入検査（pre-commit）
   check-adr-format.sh       ADRの書式検査（pre-commit）

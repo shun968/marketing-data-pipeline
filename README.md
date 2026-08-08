@@ -4,7 +4,7 @@ SNS上の投稿から市場の潜在的な顧客要望・製品優位性を継�
 
 ## システム構成
 
-[docs/architecture.md](docs/architecture.md) にC4モデル2階層（システムコンテキスト / コンテナ）の構成図がある。外部サービスとの連携・通信プロトコル・ハードウェア境界はここで確認する。
+[docs/architecture.md](docs/architecture.md) にC4モデルで書いた構成図が4枚ある。外部サービスとの連携と送信内容はSystem context図、通信プロトコルはContainer図、処理順と自動化の境界はDynamic図、ハードウェア境界はDeployment図で確認する。
 
 ## モニタリング画面
 

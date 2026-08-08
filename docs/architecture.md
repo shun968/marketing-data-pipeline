@@ -2,7 +2,7 @@
 
 最終更新: 2026-08-08
 
-関連: [design.md](./design.md) / [requirements.md](./requirements.md) / [adr/](./adr/)
+関連: [design.md](./design.md) / [requirements.md](./requirements.md) / [roadmap.md](./roadmap.md) / [adr/](./adr/)
 
 ---
 
@@ -94,6 +94,7 @@ flowchart TB
         db[("分析ストア<br/>[Container: DuckDB]<br/>posts / insights / edges / extraction_batches")]
         batch["抽出バッチ<br/>[Container: JSONL + Markdown]<br/>data/extract/"]
         logs["ログ・メトリクス<br/>[Container: ファイル]<br/>state/.logs / .metrics/"]
+        md["ドキュメント<br/>[Container: Markdown / YAML]<br/>CLAUDE.md / docs/ / .claude/skills/<br/>reports/ / lefthook.yml / ci.yml"]
     end
 
     ext["収集API<br/>[Software System]<br/>Bluesky / YouTube / Hacker News"]
@@ -106,17 +107,17 @@ flowchart TB
 
     wrap -->|"uv run で起動する"| cli
     wrap -->|"実行ログを追記する"| logs
-    cfg -->|"読み込まれる"| cli
 
+    cli -->|"読み込む"| cfg
     cli -->|"検索する<br/>HTTPS GET / 1秒間隔・指数バックオフ"| ext
     cli -.->|"モデルを取得する（初回のみ）<br/>HTTPS GET"| hf
-    cli -->|"キーワード単位で追記する"| jsonl
-    jsonl -->|"db load で読まれる（冪等）"| cli
+    cli -->|"キーワード単位で追記し、db load で読む"| jsonl
     cli -->|"読み書きする<br/>組み込みエンジン / ファイルロックで排他"| db
-    cli -->|"extract prepare で書く"| batch
-    batch -->|"extract load で読まれる（スキーマ検証）"| cli
+    cli -->|"prepare で書き、load で読む（スキーマ検証）"| batch
     cc -->|"読み書きする"| batch
-    dash -->|"読み取り専用"| logs
+
+    dash -->|"読む（読み取りのみ）"| md
+    dash -->|"読む（読み取りのみ）"| logs
 
     classDef person fill:#e8eef7,stroke:#4a6fa5,stroke-width:2px
     classDef extcls fill:#f2f2f2,stroke:#999
@@ -141,7 +142,9 @@ C4のコンテナは「動いている必要があるもの」を指し、Docker
 
 **収集ジョブはプラットフォームをまたいで1つのロックを共有する。** DuckDBはプロセス間で排他ロックを取るため、bluesky・youtube・hackernewsの実行時刻が重なると後発がHTTP通信の前に落ちる。理由と実装は `sns-collector/scripts/cron_run.sh` の冒頭コメントにある。
 
-`dashboard` と `sns-collector` は同じディスクを見るが、`dashboard` はDBを開かない。読むのは `docs/` `.claude/skills/` `sns-collector/reports/` `sns-collector/state/.logs/` `.metrics/` に限られ、許可ルートは `dashboard/src/dashboard/paths.py` の `Roots` が列挙している。
+`dashboard` と `sns-collector` は同じディスクを見るが、**`dashboard` は分析ストアを開かない。** 読むのはMarkdown・YAML・ログ・メトリクスであり、`docs/` `.claude/skills/` `sns-collector/reports/` `sns-collector/state/.logs/` `.metrics/` に加えて、ルート直下の `CLAUDE.md` と各領域の `*/CLAUDE.md`、`lefthook.yml`、`.github/workflows/ci.yml` を含む。
+
+読み取り先の定義は `dashboard/src/dashboard/paths.py` の `Roots` にあるが、**`Roots.repo` はリポジトリ根そのものであり、これだけでは読み取り範囲は絞られない。** 実際に何を開くかは `sources/*.py` の各関数が決める。上の一覧はそれを数え上げたものであり、`sources/` を増やすとここも古くなる。
 
 ---
 
@@ -178,12 +181,14 @@ flowchart TB
     classDef person fill:#e8eef7,stroke:#4a6fa5,stroke-width:2px
     class cc,result manual
     class dev person
-    linkStyle 3,4,10 stroke:#d98a00,stroke-width:2px
+    linkStyle 3,4,5,8,10 stroke:#d98a00,stroke-width:2px
 ```
 
-**橙色の4・5と11だけが手動で、残りはcronで無人実行できる。** 手動が抽出セッションに限られるのは、パイプラインのコードがLLM APIを呼ばないためである（ADR-0003）。9は開発者が問いを持って実行するものであり、自動化の対象ではない。
+**cronで無人実行できるのは 1・2・3・7・10 である。橙色の 4・5・6・9・11 は人が起動する。**
 
-コマンドごとの自動化可否は [design.md](./design.md) §4.1 の表を正とする。ここには書き写さない。
+手動が残る理由はそれぞれ異なる。4と5は抽出セッションそのもの（パイプラインのコードがLLM APIを呼ばないため。ADR-0003）。**6は `extract load <batch-id>` がバッチIDを引数に取り、そのIDはセッションが終わるまで確定しないため。** 9は開発者が問いを持って実行するもので、そもそも自動化の対象ではない。11は加筆である。
+
+コマンドごとの自動化可否は [design.md](./design.md) §4.1 の表を正とする。ここには書き写さない。**この図の色分けが §4.1 と食い違ったら、§4.1 を正として図を直す。**
 
 ---
 
@@ -252,7 +257,7 @@ flowchart TB
 **デプロイメントノードは1つしかない。サーバもコンテナオーケストレータも無く、ホスト間のネットワークホップは存在しない。** ここから次が成り立つ。
 
 - 収集データは、収集APIへのリクエストとAnthropicへの抽出依頼を除き、このマシンの外へ出る経路を持たない
-- バックアップは `sns-collector/data/` のコピーで完結する（N-07）
+- バックアップはこのディスク上のファイルをコピーするだけで完結する。対象は [design.md](./design.md) §5.2 を正とする
 - モニタリング画面はループバックに固定されており、同一ネットワークの他端末からは見えない。外部から見る必要が生じた場合はSSHのポートフォワードを使う（`dashboard/CLAUDE.md`）
 
 ---
@@ -261,7 +266,7 @@ flowchart TB
 
 | 経路 | プロトコル | 境界をまたぐか |
 |---|---|---|
-| CLI → 収集API | HTTPS GET（`common/http.py` が仲介。1秒間隔・4回まで指数バックオフ） | マシン → インターネット |
+| CLI → 収集API | HTTPS GET（`common/http.py` が仲介。1秒間隔、最大4回試行・指数バックオフの待機は最大3回） | マシン → インターネット |
 | CLI → Hugging Face Hub | HTTPS GET（初回のみ） | マシン → インターネット |
 | Claude Code → Anthropic API | HTTPS | マシン → インターネット |
 | cron → 収集ジョブ起動 | プロセス起動（fork/exec） + flock | マシン内 |

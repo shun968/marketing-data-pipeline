@@ -2,7 +2,7 @@
 
 最終更新: 2026-08-08
 
-関連: [design.md](./design.md) / [roadmap.md](./roadmap.md) / [adr/](./adr/)
+関連: [architecture.md](./architecture.md) / [design.md](./design.md) / [roadmap.md](./roadmap.md) / [adr/](./adr/)
 対応issue: #3（収集データを分析可能にするローカルDBを構築する）
 
 ---
