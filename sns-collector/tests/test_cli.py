@@ -30,7 +30,11 @@ def test_extract_prepareのplatform引数はhackernewsを選べる(tmp_path: Pat
 
 
 @pytest.mark.parametrize("platform", ["bluesky", "youtube", "hackernews"])
-def test_収集コマンドは対応するrunと設定ロード関数へディスパッチする(tmp_path: Path, platform: str):
+def test_収集コマンドは対応するrunと設定ロード関数へディスパッチする(
+    tmp_path: Path, platform: str, monkeypatch: pytest.MonkeyPatch
+):
+    # youtubeの設定ロードは環境変数必須。CIには無いためテスト内で明示的に与える
+    monkeypatch.setenv("YOUTUBE_API_KEY", "dummy")
     keywords_path = tmp_path / "keywords.yaml"
     keywords_path.write_text(KEYWORDS_YAML, encoding="utf-8")
 
