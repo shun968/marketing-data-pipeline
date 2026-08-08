@@ -1,8 +1,8 @@
 # 分析基盤 設計
 
-最終更新: 2026-07-28
+最終更新: 2026-08-08
 
-関連: [requirements.md](./requirements.md) / [roadmap.md](./roadmap.md) / [adr/](./adr/)
+関連: [architecture.md](./architecture.md) / [requirements.md](./requirements.md) / [roadmap.md](./roadmap.md) / [adr/](./adr/)
 
 ---
 
@@ -40,42 +40,16 @@
 
 ## 2. 全体構成
 
-```
-                              ┌───────────────────────────┐
-  Bluesky / YouTube /         │  data/{platform}/*.jsonl  │
-  Hacker News API             │        （生データ）        │
-        └──── collect ───────▶│                           │
-             （cron・自動）    └─────────────┬─────────────┘
-                                            │
-                                     load（自動・冪等）
-                                            ▼
-                              ┌───────────────────────────┐
-                              │   analysis.duckdb         │
-                              │   ├ posts                 │
-                              │   ├ insights (+ vector)   │
-                              │   ├ edges                 │
-                              │   └ extraction_batches    │
-                              └──┬────────┬────────┬──────┘
-                                 │        │        │
-              extract prepare ───┘        │        └─── report（自動・cron可）
-                （自動）                   │                    │
-                    ▼                     │                    ▼
-        data/extract/batch-*.jsonl        │        reports/YYYY-MM-DD.md
-                    │                     │                （定量サマリ）
-                    ▼                  embed                   │
-        ┌───────────────────────┐    （自動・ローカル）          ▼
-        │  Claude Code セッション │                     Claude Code が
-        │      （手動起動）       │                     洞察を加筆（手動）
-        └───────────┬───────────┘
-                    ▼
-        data/extract/batch-*.result.jsonl
-                    │
-          extract load（自動・スキーマ検証）
-                    │
-                    └──────────▶ insights
-```
+構成図は [architecture.md](./architecture.md) にある。C4モデルで記述してあり、次の4枚で構成される。
 
-**自動化の境界**: 図中「手動起動」と記した2箇所以外はすべてcronで無人実行できる。
+| 図 | 見えるもの |
+|---|---|
+| System context（Level 1） | 外部システムとの境界。何がどこへ送信されるか |
+| Container（Level 2） | 実行単位と通信プロトコル |
+| Dynamic（補足図） | 処理の実行順と、自動化の境界 |
+| Deployment（補足図） | ハードウェア境界。全体が1台のマシンに載ること |
+
+**この節には図を置かない。** 同じ構成を2枚で持つと、片方だけが更新されて食い違う。以降の章はその構成の中身、すなわちデータモデル・処理の詳細・非機能を扱う。
 
 ---
 
@@ -277,6 +251,8 @@
 ### 5.2 バックアップ（N-07）
 
 DBは単一ファイルであるため、`data/` ディレクトリのコピーでバックアップが完結する。週次でバックアップを取る手順をREADMEに記載する。
+
+**`reports/` も対象に含める。** F-16の加筆はここにしか無く、DBからも生データからも再生成できない。`data/` だけを見ていると、再生成できないものが唯一バックアップから漏れる。
 
 `insights` は再生成にClaude Codeセッションを要するため最も価値が高い。DB全体のバックアップに加え、`sns-collector db export-insights` でJSONLへエクスポートできるようにする。
 

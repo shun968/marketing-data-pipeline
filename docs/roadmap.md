@@ -2,7 +2,7 @@
 
 最終更新: 2026-08-08
 
-関連: [requirements.md](./requirements.md) / [design.md](./design.md) / [adr/](./adr/)
+関連: [architecture.md](./architecture.md) / [requirements.md](./requirements.md) / [design.md](./design.md) / [adr/](./adr/)
 
 ---
 

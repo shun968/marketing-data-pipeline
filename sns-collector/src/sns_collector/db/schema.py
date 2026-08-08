@@ -75,6 +75,13 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         );
         """,
     ),
+    (
+        2,
+        "insights.embedding_model を追加する",
+        """
+        ALTER TABLE insights ADD COLUMN embedding_model VARCHAR;
+        """,
+    ),
 ]
 
 _SCHEMA_VERSION_DDL = """

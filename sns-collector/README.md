@@ -270,6 +270,34 @@ uv run sns-collector extract prepare --reextract v1   # v1で抽出済みを pen
 
 **検証を通らなかった行は `<batch-id>.errors.jsonl` へ隔離され、該当投稿は `batched` のまま残る。** 次回の `prepare` では拾われないので、再抽出するには結果ファイルを直して `load` をやり直す。
 
+### 埋め込みと意味検索
+
+`insights.summary` をベクトル化し、表記揺れを跨いだ自然言語検索を可能にする（F-10, F-11）。埋め込みはローカルモデル（`fastembed` / ONNX Runtime）で生成し、外部APIは呼ばない（ADR-0002）。
+
+```sh
+uv run sns-collector embed --limit 500          # 未埋め込みのsummaryをベクトル化
+uv run sns-collector search "決済まわりの不満"    # 意味検索
+uv run sns-collector search "推論が遅い" --type complaint --pain-level 3 --monetizable true
+uv run sns-collector search "セットアップ" --platform bluesky --since 2026-08-01 --text YOLO
+```
+
+`search` は意味検索・構造化絞り込み（`--type` / `--domain` / `--pain-level` / `--monetizable` / `--platform` / `--since`）・全文検索（`--text`）を1本のSQLで合成する。`insights.embedding` が無い行（未埋め込み）はヒットしない。
+
+**モデルは `intfloat/multilingual-e5-large`（次元1024, MIT）を採用した。** 選定は実データによる比較で行った。根拠と比較結果はADR-0002を参照。
+
+**近似最近傍インデックス（HNSW）は導入していない。** DuckDB VSS拡張のHNSWは固定長ベクトル型（`FLOAT[N]`）のみ対応し、可変長の `insights.embedding`（`FLOAT[]`）には張れない。総当たりの `list_cosine_similarity` で実測したところ、10万行・1024次元でも0.36秒であり、design.md §5.3の想定規模では十分実用的なため、意図的に採用していない。コーパスが増えて実測上遅くなったら見直す。
+
+**モデルを変更する場合**、既存の埋め込みと新しいモデルのベクトルが混在すると `list_cosine_similarity` が壊れる。切り替える前に全件をリセットしてから `embed` をやり直す。
+
+```sh
+uv run python -c "
+import duckdb
+conn = duckdb.connect('data/analysis.duckdb')
+conn.execute('UPDATE insights SET embedding = NULL, embedding_model = NULL')
+"
+uv run sns-collector embed --model <新しいモデル名> --limit 100000
+```
+
 ### バックアップ
 
 DBは単一ファイルなので、コピーで完結する（N-07）。
