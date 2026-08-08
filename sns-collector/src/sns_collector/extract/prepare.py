@@ -196,6 +196,18 @@ def _prepare_in_transaction(
     # ことになり、現在のキーワード設計と対応しない投稿にセッション時間を使う。
     # 収集日で並べれば、いま効いているキーワードが拾ったものから順に見られる。
     placeholders = ", ".join("?" for _ in platforms)
+    params: list = [*platforms]
+
+    # 再抽出を指定したら、その版で抽出した投稿だけを対象にする。
+    # 戻すだけだと未抽出の投稿と同じ土俵に並び、収集日順では新しいものに
+    # 押し出される。実測では20件中12件しか再抽出対象が入らなかった。
+    # 「この版を取り直す」という指定が、取り直しにならない。
+    reextract_filter = ""
+    if reextract:
+        reextract_filter = "AND id IN (SELECT post_id FROM insights WHERE extractor_version = ?)"
+        params.append(reextract)
+    params.append(limit)
+
     rows = conn.execute(
         f"""
         SELECT id, platform, text, posted_at, matched_keywords
@@ -203,10 +215,11 @@ def _prepare_in_transaction(
         WHERE extraction_status = 'pending'
           AND platform IN ({placeholders})
           AND text IS NOT NULL AND length(trim(text)) > 0
+          {reextract_filter}
         ORDER BY collected_at DESC NULLS LAST, id
         LIMIT ?
         """,
-        [*platforms, limit],
+        params,
     ).fetchall()
 
     if not rows:
