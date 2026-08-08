@@ -7,7 +7,14 @@ from pathlib import Path
 import pytest
 
 from sns_collector.db import connect, insert_records
-from sns_collector.extract import ValidationError, load, prepare, status, validate
+from sns_collector.extract import (
+    ValidationError,
+    load,
+    prepare,
+    reopen_for_reextraction,
+    status,
+    validate,
+)
 from tests.conftest import BLUESKY_RECORD
 
 DOMAINS = frozenset({"ai_accuracy", "edge_ai", "fabrication", "other"})
@@ -478,3 +485,58 @@ def test_同じ秒に2回prepareしても衝突しない(tmp_path: Path):
 
         assert a.batch_id != b.batch_id
         assert b.batch_id == "batch-20260805-120001"
+
+
+def test_バッチが作られなければ再抽出の状態変更も巻き戻す(tmp_path: Path):
+    """戻り値が None なのに done が pending へ戻ると、呼び出し側から追跡できない。
+
+    `--reextract v1 --platform youtube` のように、戻した投稿が選択条件に
+    合致しない組み合わせで踏む。
+    """
+    extract_dir = tmp_path / "extract"
+    with connect(tmp_path / "analysis.duckdb") as conn:
+        insert_records(conn, "bluesky", [BLUESKY_RECORD])
+        first = prepare(conn, extract_dir, limit=10, version="v1", domain_ids=sorted(DOMAINS))
+        _write_result(extract_dir, first.batch_id, [_valid()])
+        load(conn, extract_dir, first.batch_id, allowed_domains=DOMAINS)
+        assert conn.execute("SELECT extraction_status FROM posts").fetchone()[0] == "done"
+
+        out = prepare(
+            conn,
+            extract_dir,
+            limit=10,
+            version="v2",
+            domain_ids=sorted(DOMAINS),
+            platforms=("youtube",),
+            reextract="v1",
+        )
+
+        assert out is None
+        assert conn.execute("SELECT extraction_status FROM posts").fetchone()[0] == "done", (
+            "バッチが作られていないのに状態だけ pending へ戻っている"
+        )
+
+
+def test_バッチが作られなくても本文の無い投稿はskippedのまま(tmp_path: Path):
+    """本文の無い投稿を落とすのはバッチの有無と無関係に正しい。巻き戻さない。"""
+    with connect(tmp_path / "analysis.duckdb") as conn:
+        insert_records(conn, "bluesky", [{**BLUESKY_RECORD, "post_id": "empty", "text": ""}])
+
+        assert (
+            prepare(conn, tmp_path / "extract", limit=10, version="v2", domain_ids=["other"])
+            is None
+        )
+        assert status(conn)["posts"] == {"skipped": 1}
+
+
+def test_再抽出の戻り値は実際に状態が変わった件数(tmp_path: Path):
+    """`insights` の行数を返すと、既に pending だったものまで数えて嘘になる。"""
+    extract_dir = tmp_path / "extract"
+    with connect(tmp_path / "analysis.duckdb") as conn:
+        insert_records(conn, "bluesky", [BLUESKY_RECORD])
+        first = prepare(conn, extract_dir, limit=10, version="v1", domain_ids=sorted(DOMAINS))
+        _write_result(extract_dir, first.batch_id, [_valid()])
+        load(conn, extract_dir, first.batch_id, allowed_domains=DOMAINS)
+
+        assert reopen_for_reextraction(conn, "v1") == 1
+        assert reopen_for_reextraction(conn, "v1") == 0, "既に pending のものを数えている"
