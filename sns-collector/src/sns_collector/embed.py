@@ -32,6 +32,47 @@ class EmbedResult:
     dimension: int | None
 
 
+_RESET_HINT = (
+    "UPDATE insights SET embedding = NULL, embedding_model = NULL; の後に埋め込み直すこと。"
+)
+
+
+def corpus_models(conn: duckdb.DuckDBPyConnection) -> set[str | None]:
+    """既存の埋め込みが使っているモデル名の集合。埋め込みが無ければ空。
+
+    **NULL を捨てない。** `embedding_model` は migration 2 で後から足した列であり、
+    ベクトルはあるのにモデル名が無い行が存在しうる。捨てると「モデルが分からない」
+    が「埋め込みが無い」と同じ扱いになり、照合が素通りする。分からないものは
+    分からないまま返し、判断は呼び出し側で行う。
+    """
+    rows = conn.execute(
+        "SELECT DISTINCT embedding_model FROM insights WHERE embedding IS NOT NULL"
+    ).fetchall()
+    return {r[0] for r in rows}
+
+
+def ensure_model_matches(conn: duckdb.DuckDBPyConnection, model_name: str) -> None:
+    """要求モデルが既存コーパスと一致するか。しなければ ValueError。
+
+    **次元の違うモデルを混ぜると search が壊れる。** `list_cosine_similarity` は
+    長さの違うリストを受け取ると InvalidInputException を投げる。これは
+    `cli.py` のどのハンドラにも掛からず素のトレースバックになるため、
+    ここで先に止めて直し方を出す。`embedding_model` 列はこの検査のために在る。
+
+    一致を確認できない限り通さない。モデル名が NULL の行は「別のモデルではない」
+    ことを示さないため、一致とはみなさない。
+    """
+    models = corpus_models(conn)
+    if not models or models == {model_name}:
+        return
+
+    found = ", ".join(sorted("不明" if m is None else m for m in models))
+    raise ValueError(
+        f"既存の埋め込みのモデル（{found}）が {model_name} と一致しない。"
+        f"次元が異なると検索が落ちる。同じモデルを指定するか、{_RESET_HINT}"
+    )
+
+
 def _default_embedder(model_name: str) -> Embedder:
     from fastembed import TextEmbedding
 
@@ -56,6 +97,8 @@ def embed(
     変わらない（冪等）。`embedder` を注入しない場合のみ実モデルを構築するので、
     テストは実モデルのダウンロードなしに決定的な埋め込み関数を渡せる。
     """
+    ensure_model_matches(conn, model_name)
+
     rows = conn.execute(
         """
         SELECT post_id, summary FROM insights

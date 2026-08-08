@@ -23,6 +23,11 @@ def _insert_post(conn, *, post_id, platform, url, text, posted_at) -> None:
     )
 
 
+# 実際の embed() は必ず embedding_model を書く。テストで NULL のままにすると、
+# ensure_model_matches が素通りする構成だけを検証することになる
+MODEL = "fake-model"
+
+
 def _insert_insight(
     conn,
     *,
@@ -32,12 +37,14 @@ def _insert_insight(
     domain="edge_ai",
     pain_level=1,
     monetizable=False,
+    embedding_model=MODEL,
 ) -> None:
     conn.execute(
         """
         INSERT INTO insights
-            (post_id, insight_type, domain, summary, pain_level, monetizable, embedding)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+            (post_id, insight_type, domain, summary, pain_level, monetizable,
+             embedding, embedding_model)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [
             post_id,
@@ -47,6 +54,7 @@ def _insert_insight(
             pain_level,
             monetizable,
             embedding,
+            embedding_model if embedding is not None else None,
         ],
     )
 
@@ -77,7 +85,7 @@ def test_類似度の高い順に返す(conn):
     _insert_insight(conn, post_id="near", embedding=[1.0, 0.0, 0.0])
     _insert_insight(conn, post_id="far", embedding=[0.0, 1.0, 0.0])
 
-    hits = search(conn, "クエリ", embedder=_fake_embedder([1.0, 0.0, 0.0]))
+    hits = search(conn, "クエリ", model_name=MODEL, embedder=_fake_embedder([1.0, 0.0, 0.0]))
 
     assert [h.post_id for h in hits] == ["near", "far"]
     assert hits[0].score == pytest.approx(1.0)
@@ -98,7 +106,7 @@ def test_埋め込み未生成の行はヒットしない(conn):
         "VALUES ('no-embedding', 'complaint', 'edge_ai', '要約')"
     )
 
-    hits = search(conn, "クエリ", embedder=_fake_embedder([1.0, 0.0, 0.0]))
+    hits = search(conn, "クエリ", model_name=MODEL, embedder=_fake_embedder([1.0, 0.0, 0.0]))
 
     assert hits == []
 
@@ -134,7 +142,9 @@ def test_絞り込み条件に一致しなければ除外する(conn, filters, �
         monetizable=False,
     )
 
-    hits = search(conn, "クエリ", embedder=_fake_embedder([1.0, 0.0, 0.0]), **filters)
+    hits = search(
+        conn, "クエリ", model_name=MODEL, embedder=_fake_embedder([1.0, 0.0, 0.0]), **filters
+    )
 
     assert hits == [], 理由
 
@@ -161,6 +171,7 @@ def test_絞り込み条件に一致すれば含める(conn):
     hits = search(
         conn,
         "クエリ",
+        model_name=MODEL,
         embedder=_fake_embedder([1.0, 0.0, 0.0]),
         insight_type="complaint",
         domain="edge_ai",
@@ -172,3 +183,40 @@ def test_絞り込み条件に一致すれば含める(conn):
     )
 
     assert [h.post_id for h in hits] == ["p1"]
+
+
+def test_コーパスと違うモデルを指定したら一行のエラーにする(conn):
+    """duckdbのInvalidInputExceptionはcli.pyのどのハンドラにも掛からない。
+
+    素のトレースバックを出さず、直し方の分かるValueErrorへ変換する。
+    """
+    _insert_post(
+        conn,
+        post_id="a",
+        platform="bluesky",
+        url="https://example.com/a",
+        text="投稿",
+        posted_at=datetime(2026, 8, 1),
+    )
+    _insert_insight(conn, post_id="a", embedding=[1.0, 0.0, 0.0])
+    conn.execute("UPDATE insights SET embedding_model = 'model-a'")
+
+    with pytest.raises(ValueError, match="model-a"):
+        search(conn, "クエリ", model_name="model-b", embedder=_fake_embedder([1.0, 0.0]))
+
+
+def test_コーパスと同じモデルなら検索できる(conn):
+    """誤検知しないこと。"""
+    _insert_post(
+        conn,
+        post_id="a",
+        platform="bluesky",
+        url="https://example.com/a",
+        text="投稿",
+        posted_at=datetime(2026, 8, 1),
+    )
+    _insert_insight(conn, post_id="a", embedding=[1.0, 0.0, 0.0])
+    conn.execute("UPDATE insights SET embedding_model = 'model-a'")
+
+    hits = search(conn, "クエリ", model_name="model-a", embedder=_fake_embedder([1.0, 0.0, 0.0]))
+    assert [h.post_id for h in hits] == ["a"]
