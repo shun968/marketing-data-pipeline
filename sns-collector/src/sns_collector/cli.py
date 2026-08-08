@@ -227,6 +227,9 @@ def _run_extract(args: argparse.Namespace) -> int:
             conn, extract_dir, args.batch_id, allowed_domains=frozenset(domain_ids)
         )
         print(f"取り込み: {result.accepted}件 / 拒否: {result.rejected}件")
+        if result.embeddings_cleared:
+            print(f"  要約が変わったため埋め込みを破棄: {result.embeddings_cleared}件")
+            print("  `sns-collector embed` を実行するまで、該当投稿は検索に出ない。")
         if result.errors_path:
             print(f"  拒否した行: {result.errors_path}")
             print("  該当投稿は batched のまま残るため、次回の再バッチで拾える。")
