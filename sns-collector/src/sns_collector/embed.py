@@ -32,25 +32,23 @@ class EmbedResult:
     dimension: int | None
 
 
-def corpus_model(conn: duckdb.DuckDBPyConnection) -> str | None:
-    """既存の埋め込みが使っているモデル名。1件も無ければ None。
+_RESET_HINT = (
+    "UPDATE insights SET embedding = NULL, embedding_model = NULL; の後に埋め込み直すこと。"
+)
 
-    複数ある場合は最初の1つではなく例外にする。混在は次元不一致で
-    `list_cosine_similarity` を落とすため、どちらを正とも決められない。
+
+def corpus_models(conn: duckdb.DuckDBPyConnection) -> set[str | None]:
+    """既存の埋め込みが使っているモデル名の集合。埋め込みが無ければ空。
+
+    **NULL を捨てない。** `embedding_model` は migration 2 で後から足した列であり、
+    ベクトルはあるのにモデル名が無い行が存在しうる。捨てると「モデルが分からない」
+    が「埋め込みが無い」と同じ扱いになり、照合が素通りする。分からないものは
+    分からないまま返し、判断は呼び出し側で行う。
     """
     rows = conn.execute(
         "SELECT DISTINCT embedding_model FROM insights WHERE embedding IS NOT NULL"
     ).fetchall()
-    names = sorted(r[0] for r in rows if r[0] is not None)
-
-    if not names:
-        return None
-    if len(names) > 1:
-        raise ValueError(
-            f"埋め込みモデルが混在している: {', '.join(names)}。"
-            "UPDATE insights SET embedding = NULL, embedding_model = NULL; の後に埋め込み直すこと。"
-        )
-    return names[0]
+    return {r[0] for r in rows}
 
 
 def ensure_model_matches(conn: duckdb.DuckDBPyConnection, model_name: str) -> None:
@@ -60,15 +58,18 @@ def ensure_model_matches(conn: duckdb.DuckDBPyConnection, model_name: str) -> No
     長さの違うリストを受け取ると InvalidInputException を投げる。これは
     `cli.py` のどのハンドラにも掛からず素のトレースバックになるため、
     ここで先に止めて直し方を出す。`embedding_model` 列はこの検査のために在る。
+
+    一致を確認できない限り通さない。モデル名が NULL の行は「別のモデルではない」
+    ことを示さないため、一致とはみなさない。
     """
-    current = corpus_model(conn)
-    if current is None or current == model_name:
+    models = corpus_models(conn)
+    if not models or models == {model_name}:
         return
 
+    found = ", ".join(sorted("不明" if m is None else m for m in models))
     raise ValueError(
-        f"既存の埋め込みは {current} で作られており、{model_name} とは次元が異なりうる。"
-        "同じモデルを指定するか、UPDATE insights SET embedding = NULL, "
-        "embedding_model = NULL; の後に埋め込み直すこと。"
+        f"既存の埋め込みのモデル（{found}）が {model_name} と一致しない。"
+        f"次元が異なると検索が落ちる。同じモデルを指定するか、{_RESET_HINT}"
     )
 
 

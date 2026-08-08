@@ -109,7 +109,7 @@ def test_書き込み失敗時はロールバックし部分的な埋め込み�
     assert row == (None, None)
 
 
-def test_モデルが混在していたら埋め込みを拒否する(conn_with_insight):
+def test_要求モデルがコーパスと違えば埋め込みを拒否する(conn_with_insight):
     """次元の違うモデルを混ぜると search が例外で落ちる。事前に止める。"""
     conn, post_id = conn_with_insight
     embed(conn, limit=10, model_name="model-a", embedder=_fake_embedder())
@@ -117,6 +117,35 @@ def test_モデルが混在していたら埋め込みを拒否する(conn_with_
     _insert_insight(conn, "bluesky:another", summary="別の要約")
     with pytest.raises(ValueError, match="model-a"):
         embed(conn, limit=10, model_name="model-b", embedder=_fake_embedder(dim=8))
+
+
+def test_既に混在しているDBはどのモデルでも拒否し全部を挙げる(conn_with_insight):
+    """壊れたDBを診断できる唯一の経路。要求モデルと一致する行が在っても通さない。"""
+    conn, post_id = conn_with_insight
+    embed(conn, limit=10, model_name="model-a", embedder=_fake_embedder())
+    _insert_insight(conn, "bluesky:another", summary="別の要約")
+    embed(conn, limit=10, model_name="model-a", embedder=_fake_embedder())
+    conn.execute("UPDATE insights SET embedding_model = 'model-b' WHERE post_id = ?", [post_id])
+
+    with pytest.raises(ValueError) as e:
+        embed(conn, limit=10, model_name="model-a", embedder=_fake_embedder())
+    assert "model-a" in str(e.value)
+    assert "model-b" in str(e.value)
+
+
+def test_モデル名が不明な埋め込みは一致とみなさない(conn_with_insight):
+    """embedding_model は migration 2 で後から足した列。
+
+    ベクトルはあるのにモデル名が無い行を「埋め込みが無い」と同じ扱いにすると、
+    照合が素通りして次元の違うベクトルが並ぶ。分からないものは通さない。
+    """
+    conn, post_id = conn_with_insight
+    embed(conn, limit=10, model_name="model-a", embedder=_fake_embedder())
+    conn.execute("UPDATE insights SET embedding_model = NULL")
+
+    _insert_insight(conn, "bluesky:another", summary="別の要約")
+    with pytest.raises(ValueError, match="不明"):
+        embed(conn, limit=10, model_name="model-a", embedder=_fake_embedder(dim=8))
 
 
 def test_同じモデルなら追加の埋め込みを通す(conn_with_insight):

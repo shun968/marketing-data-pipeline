@@ -59,6 +59,23 @@ class LoadResult:
     accepted: int
     rejected: int
     errors_path: Path | None
+    embeddings_cleared: int = 0
+    """要約が変わって捨てたベクトルの件数。
+
+    黙って捨てると、その投稿は `embed` を回すまで `search` の結果から消える。
+    件数を返さないと運用者に気づく手段が無い。
+    """
+
+
+def _embedded_count(conn: duckdb.DuckDBPyConnection, post_ids: list[str]) -> int:
+    if not post_ids:
+        return 0
+    placeholders = ", ".join("?" * len(post_ids))
+    return conn.execute(
+        "SELECT count(*) FROM insights "
+        f"WHERE embedding IS NOT NULL AND post_id IN ({placeholders})",
+        post_ids,
+    ).fetchone()[0]
 
 
 def _batch_post_ids(batch_path: Path) -> set[str]:
@@ -142,7 +159,14 @@ def load(
             seen.add(insight.post_id)
             accepted.append(insight)
 
+    embeddings_cleared = 0
     if accepted:
+        # 捨てた件数は前後の差で数える。_UPSERT の CASE と同じ条件をここに
+        # 書き直すと、片方だけ直したときに数字が黙って嘘になる。
+        # この UPSERT はベクトルを消すことしかしないため、差は必ず捨てた分に等しい
+        post_ids = [i.post_id for i in accepted]
+        before = _embedded_count(conn, post_ids)
+
         conn.executemany(
             _UPSERT,
             [
@@ -161,6 +185,8 @@ def load(
                 for i in accepted
             ],
         )
+        embeddings_cleared = before - _embedded_count(conn, post_ids)
+
         conn.executemany(
             "UPDATE posts SET extraction_status = 'done' WHERE id = ?",
             [[i.post_id] for i in accepted],
@@ -181,6 +207,7 @@ def load(
         accepted=len(accepted),
         rejected=len(errors),
         errors_path=errors_path,
+        embeddings_cleared=embeddings_cleared,
     )
 
 
