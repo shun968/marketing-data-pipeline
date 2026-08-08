@@ -1,6 +1,6 @@
 # sns-collector
 
-潜在的な新規事業開拓のための分析材料として、Bluesky・YouTubeのキーワード検索データを定期収集するツール。
+潜在的な新規事業開拓のための分析材料として、Bluesky・YouTube・Hacker Newsのキーワード検索データを定期収集するツール。
 
 収集データ・状態ファイルは常にローカルディスクにのみ保存され、GitHub等の外部には一切送信・コミットされない（`.gitignore`済み）。
 
@@ -19,6 +19,10 @@ uv sync
 ### Bluesky
 
 認証不要。追加設定なしですぐ実行できる。
+
+### Hacker News
+
+認証不要。Algoliaが提供する公開検索API（`hn.algolia.com`）を使うため、追加設定なしですぐ実行できる。
 
 ### YouTube
 
@@ -80,9 +84,9 @@ uv run sns-collector youtube
 
 ## 検索キーワードの編集
 
-`config/keywords.yaml`を編集する。BlueskyとYouTubeは独立したキーワードリストを持ち、**役割が異なる**。
+`config/keywords.yaml`を編集する。プラットフォームごとに独立したキーワードリストを持ち、**役割が異なる**。
 
-- **Bluesky = 需要シグナル**。投稿本文を検索し、未充足ニーズや不満の生の表現を拾う
+- **Bluesky・Hacker News = 需要シグナル**。投稿本文・コメントを検索し、未充足ニーズや不満の生の表現を拾う
 - **YouTube = 供給シグナル**。動画のタイトル・説明文しか検索できないため、痛みを表す語（「面倒」「使いにくい」等）はほぼヒットしない。既存ソリューション・競合・市場の関心度の測定に用途を限定する
 
 観測対象ドメインとその仮説は`config/domains.yaml`に定義する。設計の背景は`docs/requirements.md`を参照。
@@ -101,6 +105,12 @@ youtube:
   relevance_language: ja
   keywords:
     - "Jetson YOLO"
+
+hackernews:
+  tags: "(story,comment)" # Algoliaのタグフィルタ(括弧が無いとAND判定になり常に0件)
+  hits_per_page: 50
+  keywords:
+    - '"jetson nano"'
 ```
 
 ### キーワード設計の3原則
@@ -191,6 +201,7 @@ YouTube側は2026-07-29の実測で9キーワードすべてが的確であり�
 ```sh
 uv run sns-collector bluesky
 uv run sns-collector youtube
+uv run sns-collector hackernews
 ```
 
 ## 分析ストア（DuckDB）
@@ -235,7 +246,7 @@ uv run sns-collector extract load <batch-id>      # 検証してDBへ
 uv run sns-collector extract status               # 待ち件数・未取り込みバッチ
 ```
 
-**対象は既定でBlueskyのみ。** YouTubeは供給シグナルであり、動画メタデータへ需要シグナルの抽出を掛けてもほぼ `none` にしかならない。含めるなら `--platform youtube`。
+**対象は既定でBluesky・Hacker Newsのみ。** YouTubeは供給シグナルであり、動画メタデータへ需要シグナルの抽出を掛けてもほぼ `none` にしかならない。含めるなら `--platform youtube`。
 
 取り出す順は収集日の新しい順。投稿日の古い順だと、初回収集で遡った2009年の動画から処理することになる。
 
@@ -267,7 +278,7 @@ cp data/analysis.duckdb data/analysis.duckdb.$(date +%Y%m%d)
 
 ## 出力
 
-`data/{bluesky,youtube}/<YYYY-MM-DD>.jsonl`に1行1JSONで追記される（同日内の複数回実行は同一ファイルに追記）。
+`data/{bluesky,youtube,hackernews}/<YYYY-MM-DD>.jsonl`に1行1JSONで追記される（同日内の複数回実行は同一ファイルに追記）。
 
 run跨ぎの重複を避けるため、収集した投稿は同時に`data/analysis.duckdb`の`posts`へ書き込まれ、次回以降はそこを既知判定に使う（[分析ストア](#分析ストアduckdb)を参照）。同じキーワードで再実行しても、既に収集済みの投稿・動画は再度JSONLに書き込まれない。
 
@@ -287,9 +298,11 @@ run跨ぎの重複を避けるため、収集した投稿は同時に`data/analy
 0 */3 * * * /path/to/marketing-data-pipeline/sns-collector/scripts/cron_run.sh bluesky
 # YouTubeキーワード検索(3時間おき、Blueskyと15分ずらして負荷分散)
 15 */3 * * * /path/to/marketing-data-pipeline/sns-collector/scripts/cron_run.sh youtube
+# Hacker Newsキーワード検索(3時間おき、他の2つと30分ずらして負荷分散)
+30 */3 * * * /path/to/marketing-data-pipeline/sns-collector/scripts/cron_run.sh hackernews
 ```
 
-実行ログは`state/.logs/{bluesky,youtube}.log`に記録される。
+実行ログは`state/.logs/{bluesky,youtube,hackernews}.log`に記録される。
 
 ### YouTubeのクオータと実行頻度
 

@@ -13,16 +13,31 @@ from .common.config import (
     ConfigError,
     load_bluesky_config,
     load_domain_ids,
+    load_hackernews_config,
     load_youtube_config,
 )
 from .db import connect, current_version, database_path, latest_version, load_all
 from .extract.prepare import DEFAULT_PLATFORMS
+from .hackernews import search as hackernews_search
 from .youtube import search as youtube_search
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_KEYWORDS_PATH = PROJECT_ROOT / "config" / "keywords.yaml"
 DEFAULT_DATA_DIR = PROJECT_ROOT / "data"
 DEFAULT_DOMAINS_PATH = PROJECT_ROOT / "config" / "domains.yaml"
+
+# 収集コマンド名 -> (収集モジュール, 設定ロード関数)。
+# サブパーサの登録・実行時ディスパッチの両方をこの1箇所から辿れるようにする。
+#
+# **モジュールを持つ。関数を直接束ねない。** `bluesky_search.run` を import時に
+# 直接評価して辞書へ入れると、テストが `patch("...bluesky.search.run")` で
+# 差し替えても、辞書には差し替え前の関数オブジェクトが残ったままになる。
+# モジュールを持てば `.run` の参照は呼び出し時に解決され、既存のパッチ手法と噛み合う。
+COLLECTORS = {
+    "bluesky": (bluesky_search, load_bluesky_config),
+    "youtube": (youtube_search, load_youtube_config),
+    "hackernews": (hackernews_search, load_hackernews_config),
+}
 
 
 def _iso_date(value: str) -> date:
@@ -34,12 +49,12 @@ def _iso_date(value: str) -> date:
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="SNS(Bluesky/YouTube)を検索して収集し、DuckDBの分析ストアへ取り込む"
+        description="SNS(Bluesky/YouTube/Hacker News)を検索して収集し、DuckDBの分析ストアへ取り込む"
     )
     # cron が `sns-collector bluesky` を直接呼ぶ。この呼び出し形を壊さないこと
     sub = parser.add_subparsers(dest="command", required=True)
 
-    for platform in ("bluesky", "youtube"):
+    for platform in COLLECTORS:
         collect = sub.add_parser(platform, help=f"{platform}を検索して収集する")
         collect.add_argument(
             "--keywords", type=Path, default=DEFAULT_KEYWORDS_PATH, help="keywords.yamlのパス"
@@ -80,7 +95,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ex_prepare.add_argument(
         "--platform",
         action="append",
-        choices=["bluesky", "youtube"],
+        choices=list(COLLECTORS),
         help="抽出対象のプラットフォーム(既定: bluesky)。複数指定可",
     )
 
@@ -183,16 +198,11 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "extract":
             return _run_extract(args)
 
-        if args.command == "bluesky":
-            bluesky_search.run(
-                load_bluesky_config(args.keywords),
-                data_dir=args.data_dir / "bluesky",
-                db_path=_db_path(args),
-            )
-        else:
-            youtube_search.run(
-                load_youtube_config(args.keywords),
-                data_dir=args.data_dir / "youtube",
+        if args.command in COLLECTORS:
+            module, load_config = COLLECTORS[args.command]
+            module.run(
+                load_config(args.keywords),
+                data_dir=args.data_dir / args.command,
                 db_path=_db_path(args),
             )
     except ConfigError as e:

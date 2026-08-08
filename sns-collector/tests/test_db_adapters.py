@@ -4,8 +4,8 @@ import json
 
 import pytest
 
-from sns_collector.db.adapters import AdapterError, from_bluesky, from_youtube
-from tests.conftest import BLUESKY_RECORD, YOUTUBE_RECORD
+from sns_collector.db.adapters import AdapterError, from_bluesky, from_hackernews, from_youtube
+from tests.conftest import BLUESKY_RECORD, HACKERNEWS_RECORD, YOUTUBE_RECORD
 
 
 def test_blueskyのidはプラットフォーム接頭辞を持つ():
@@ -47,6 +47,32 @@ def test_古いJSONLに無いフィールドがあっても読める():
     assert json.loads(row.raw)["post_id"] == old["post_id"], "rawが無ければレコード自体を残す"
 
 
+def test_hackernewsのidはプラットフォーム接頭辞を持つ():
+    row = from_hackernews(HACKERNEWS_RECORD)
+    assert row.id == "hackernews:49217777"
+    assert row.platform == "hackernews"
+    assert row.native_id == HACKERNEWS_RECORD["item_id"]
+
+
+def test_hackernewsは著者名を安定IDとハンドルの両方に使う():
+    """HNにはハンドルと別の安定IDが無い。ユーザー名自体が変わらない識別子。"""
+    row = from_hackernews(HACKERNEWS_RECORD)
+    assert row.author_id == "someone"
+    assert row.author_handle == "someone"
+    assert row.lang is None, "Algolia検索APIは言語を返さない"
+
+
+def test_hackernewsのmetricsにitem_typeとstory_idを含める():
+    row = from_hackernews(HACKERNEWS_RECORD)
+    metrics = json.loads(row.metrics)
+    assert metrics == {
+        "points": 3,
+        "num_comments": 0,
+        "item_type": "comment",
+        "story_id": "49216362",
+    }
+
+
 def test_必須フィールドが無ければ弾く():
     broken = {k: v for k, v in BLUESKY_RECORD.items() if k != "post_id"}
     with pytest.raises(AdapterError):
@@ -54,6 +80,9 @@ def test_必須フィールドが無ければ弾く():
 
     with pytest.raises(AdapterError):
         from_youtube({**YOUTUBE_RECORD, "video_id": ""})
+
+    with pytest.raises(AdapterError):
+        from_hackernews({**HACKERNEWS_RECORD, "item_id": ""})
 
 
 def test_日時が壊れていても行は捨てない():

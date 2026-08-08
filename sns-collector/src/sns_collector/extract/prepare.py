@@ -51,14 +51,17 @@ def prompt_path(version: str) -> Path:
     return PROMPTS_DIR / f"extract-{version}.md"
 
 
-# 抽出の既定はBlueskyだけ。
+# 抽出の既定はBluesky・Hacker Newsの需要シグナル系だけ。
 #
 # YouTubeは供給シグナル（既存ソリューション・競合・市場の関心度）であり、
 # 検索できるのは動画のメタデータに限られる（design.md §4.1）。そこへ
 # 「未充足ニーズ／不満」の抽出を掛けても構造的にほぼ none にしかならない。
 # 実測: 最初のバッチ20件のうち18件がYouTubeの製品デモで、全件 none だった。
 # 供給側の分析はPhase 4のレポートで別途行う。
-DEFAULT_PLATFORMS = ("bluesky",)
+#
+# Hacker Newsはコメント・Ask HN投稿という生の本文が取れる点でBlueskyと同種
+# であり、既定に含める（ADR-0006）。
+DEFAULT_PLATFORMS = ("bluesky", "hackernews")
 
 
 def _read_template(version: str) -> str:
