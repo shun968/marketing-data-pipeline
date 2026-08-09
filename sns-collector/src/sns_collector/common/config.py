@@ -36,6 +36,25 @@ class HackerNewsConfig:
     keywords: list[str]
 
 
+@dataclass(frozen=True)
+class GitHubConfig:
+    token: str | None
+    qualifiers: str
+    per_page: int
+    keywords: list[str]
+
+
+@dataclass(frozen=True)
+class RedditConfig:
+    client_id: str
+    client_secret: str
+    user_agent: str
+    sort: str
+    time_filter: str
+    limit_per_keyword: int
+    keywords: list[str]
+
+
 def _load_keywords_file(path: Path) -> dict:
     return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
 
@@ -88,6 +107,56 @@ def load_hackernews_config(path: Path) -> HackerNewsConfig:
         # 常に0件)になる。"(story,comment)"のようにOR対象を括弧で囲む必要がある
         tags=raw.get("tags", "(story,comment)"),
         hits_per_page=int(raw.get("hits_per_page", 50)),
+        keywords=list(keywords),
+    )
+
+
+def load_github_config(path: Path, env_path: Path | None = None) -> GitHubConfig:
+    load_dotenv(dotenv_path=env_path)
+    # トークンは任意。無くても検索できる(レート制限が10 req/minへ下がるだけ)。
+    # 必須にすると、キーワード候補を実データで検証する前段の作業まで
+    # 資格情報の準備待ちになる(sns-collector/CLAUDE.md「質の確認に本収集を使わない」)
+    token = os.environ.get("GITHUB_TOKEN", "") or None
+
+    raw = _load_keywords_file(path).get("github", {})
+    keywords = raw.get("keywords", [])
+    if not keywords:
+        raise ConfigError(f"{path} に github.keywords が定義されていません。")
+
+    return GitHubConfig(
+        token=token,
+        # is:issue を外すとPull Requestも混ざる
+        qualifiers=raw.get("qualifiers", "is:issue"),
+        per_page=int(raw.get("per_page", 50)),
+        keywords=list(keywords),
+    )
+
+
+def load_reddit_config(path: Path, env_path: Path | None = None) -> RedditConfig:
+    load_dotenv(dotenv_path=env_path)
+    missing = [
+        name
+        for name in ("REDDIT_CLIENT_ID", "REDDIT_CLIENT_SECRET", "REDDIT_USER_AGENT")
+        if not os.environ.get(name, "")
+    ]
+    if missing:
+        raise ConfigError(
+            f"必須の環境変数 {', '.join(missing)} が未設定です。"
+            " .env.example を参考に .env を作成してください。"
+        )
+
+    raw = _load_keywords_file(path).get("reddit", {})
+    keywords = raw.get("keywords", [])
+    if not keywords:
+        raise ConfigError(f"{path} に reddit.keywords が定義されていません。")
+
+    return RedditConfig(
+        client_id=os.environ["REDDIT_CLIENT_ID"],
+        client_secret=os.environ["REDDIT_CLIENT_SECRET"],
+        user_agent=os.environ["REDDIT_USER_AGENT"],
+        sort=raw.get("sort", "new"),
+        time_filter=raw.get("time_filter", "month"),
+        limit_per_keyword=int(raw.get("limit_per_keyword", 50)),
         keywords=list(keywords),
     )
 

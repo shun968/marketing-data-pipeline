@@ -61,6 +61,11 @@ def prompt_path(version: str, prompts_dir: Path | None = None) -> Path:
 #
 # Hacker Newsはコメント・Ask HN投稿という生の本文が取れる点でBlueskyと同種
 # であり、既定に含める（ADR-0006）。
+#
+# GitHub / Redditは追加したが既定には含めない（ADR-0009）。抽出の歩留まりを
+# 実測してから判断する。GitHubのIssue本文はBlueskyの投稿より1〜2桁長く、
+# 未検証のまま既定バッチへ混ぜると課金される抽出セッションのコンテキストを
+# 圧迫しうる。
 DEFAULT_PLATFORMS = ("bluesky", "hackernews")
 
 

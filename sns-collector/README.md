@@ -1,6 +1,6 @@
 # sns-collector
 
-潜在的な新規事業開拓のための分析材料として、Bluesky・YouTube・Hacker Newsのキーワード検索データを定期収集するツール。
+潜在的な新規事業開拓のための分析材料として、Bluesky・YouTube・Hacker News・GitHub・Redditのキーワード検索データを定期収集するツール。
 
 収集データ・状態ファイルは常にローカルディスクにのみ保存され、GitHub等の外部には一切送信・コミットされない（`.gitignore`済み）。
 
@@ -23,6 +23,33 @@ uv sync
 ### Hacker News
 
 認証不要。Algoliaが提供する公開検索API（`hn.algolia.com`）を使うため、追加設定なしですぐ実行できる。
+
+### GitHub
+
+認証は任意。未設定でも検索できるが、検索APIのレート制限が未認証10 req/min・認証済み30 req/minと大きく異なるため、トークンの発行を推奨する。
+
+1. [Personal access token (fine-grained)](https://github.com/settings/tokens?type=beta) を発行する。公開Issueの検索のみなので、scopeは不要（`public_repo`も不要）
+2. `.env`に設定する（既にシェルで`GITHUB_TOKEN`をexportしている場合はそちらが優先される）
+
+```
+GITHUB_TOKEN=発行したトークンをここに貼る
+```
+
+### Reddit
+
+認証必須。読み取り専用のapplication-only OAuth2（`client_credentials`）を使うため、ユーザーのログインは不要。
+
+1. https://www.reddit.com/prefs/apps で「create another app...」→ **script** タイプで新規登録する（redirect URIはローカル収集では使わないため、`http://localhost` 等の適当な値でよい）
+2. 登録後に表示される `client_id`（アプリ名の下の文字列）と `secret` を控える
+3. `.env`に設定する
+
+```
+REDDIT_CLIENT_ID=xxxxxxxxxxxxxxxx
+REDDIT_CLIENT_SECRET=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+# RedditのAPIルール上、固有かつ説明的な文字列が必須。既定のUAは遮断される
+# 書式: <platform>:<app id>:<version> (by /u/<あなたのRedditユーザー名>)
+REDDIT_USER_AGENT=script:sns-collector:1.0 (by /u/yourname)
+```
 
 ### YouTube
 
@@ -86,7 +113,7 @@ uv run sns-collector youtube
 
 `config/keywords.yaml`を編集する。プラットフォームごとに独立したキーワードリストを持ち、**役割が異なる**。
 
-- **Bluesky・Hacker News = 需要シグナル**。投稿本文・コメントを検索し、未充足ニーズや不満の生の表現を拾う
+- **Bluesky・Hacker News・GitHub・Reddit = 需要シグナル**。投稿本文・コメント・Issue・スレッドを検索し、未充足ニーズや不満の生の表現を拾う
 - **YouTube = 供給シグナル**。動画のタイトル・説明文しか検索できないため、痛みを表す語（「面倒」「使いにくい」等）はほぼヒットしない。既存ソリューション・競合・市場の関心度の測定に用途を限定する
 
 観測対象ドメインとその仮説は`config/domains.yaml`に定義する。設計の背景は`docs/requirements.md`を参照。
@@ -111,7 +138,22 @@ hackernews:
   hits_per_page: 50
   keywords:
     - '"jetson nano"'
+
+github:
+  qualifiers: "is:issue" # 外すとPull Requestも混ざる
+  per_page: 50
+  keywords:
+    - "onnx conversion error"
+
+reddit:
+  sort: new # new | relevance | top | comments
+  time_filter: month # hour | day | week | month | year | all
+  limit_per_keyword: 50
+  keywords:
+    - "jetson inference slow"
 ```
+
+**GitHub・Redditのキーワードはまだ実データで検証していない。** 他プラットフォームと同様、`sns_collector.github.client.search_issues` / `sns_collector.reddit.client.search_posts`（Redditはトークン取得が要るため`sns_collector.reddit.auth.fetch_token`と組み合わせる）を認証情報だけ用意してDB非破壊で試し打ちし、キーワード設計の3原則（下記）に照らして確認してから`cron_run.sh`へ登録すること。
 
 ### キーワード設計の3原則
 
@@ -210,6 +252,8 @@ uv run sns-collector keywords quality --platform bluesky
 uv run sns-collector bluesky
 uv run sns-collector youtube
 uv run sns-collector hackernews
+uv run sns-collector github
+uv run sns-collector reddit
 ```
 
 ## 分析ストア（DuckDB）
@@ -381,7 +425,7 @@ cp data/analysis.duckdb data/analysis.duckdb.$(date +%Y%m%d)
 
 ## 出力
 
-`data/{bluesky,youtube,hackernews}/<YYYY-MM-DD>.jsonl`に1行1JSONで追記される（同日内の複数回実行は同一ファイルに追記）。
+`data/{bluesky,youtube,hackernews,github,reddit}/<YYYY-MM-DD>.jsonl`に1行1JSONで追記される（同日内の複数回実行は同一ファイルに追記）。
 
 run跨ぎの重複を避けるため、収集した投稿は同時に`data/analysis.duckdb`の`posts`へ書き込まれ、次回以降はそこを既知判定に使う（[分析ストア](#分析ストアduckdb)を参照）。同じキーワードで再実行しても、既に収集済みの投稿・動画は再度JSONLに書き込まれない。
 
@@ -435,6 +479,8 @@ run跨ぎの重複を避けるため、収集した投稿は同時に`data/analy
 - **再試行**: `403 / 429 / 5xx`を一時的な障害とみなし、指数バックオフ（2秒→4秒→8秒）で最大3回まで再試行する。`Retry-After`ヘッダがあればその値を優先する
   - Blueskyは連続アクセス時のスロットリングを`429`ではなく`403`で返すことがあるため、`403`も再試行対象に含めている
 - **キーワード単位の隔離**: 再試行しても回復しないキーワードはスキップして次へ進む。**1キーワードの失敗でrun全体を落とさない**
+
+**GitHubの検索APIだけレート制限が桁違いに低い**（未認証10 req/min・認証済み30 req/min）。他プラットフォームの1秒間隔ではなく、`github/client.py`が独自に6.5秒（未認証）/2.5秒（認証済み）の間隔を空ける。**Redditはトークン取得（POST）にも同じペーシング・再試行の仕組み（`common/http.py::post_json`）を通す。**
 
 最後の点が重要である。収集結果の保存はループ完了後に一度だけ行われるため、途中で例外が送出されるとそれまでに収集した全件が破棄される。特にYouTubeでは、消費済みのクオータまで無駄になる。
 

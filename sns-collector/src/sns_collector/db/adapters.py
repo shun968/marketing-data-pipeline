@@ -162,4 +162,76 @@ def from_hackernews(record: dict[str, Any]) -> PostRow:
     )
 
 
-ADAPTERS = {"bluesky": from_bluesky, "youtube": from_youtube, "hackernews": from_hackernews}
+def from_github(record: dict[str, Any]) -> PostRow:
+    native_id = _required(record, "issue_id")
+    keyword = record.get("keyword")
+
+    return PostRow(
+        id=f"github:{native_id}",
+        platform="github",
+        native_id=native_id,
+        # loginは改名で変わる。ユーザーの数値IDは変わらない(BlueskyのDIDと同じ役割)
+        author_id=record.get("author_id") or None,
+        author_handle=record.get("author") or None,
+        text=record.get("text", ""),
+        url=record.get("url") or None,
+        # 検索APIは言語を返さない
+        lang=None,
+        posted_at=_parse_timestamp(record.get("created_at")),
+        collected_at=_parse_timestamp(record.get("collected_at")),
+        matched_keywords=[keyword] if isinstance(keyword, str) and keyword else [],
+        metrics=json.dumps(
+            {
+                "comments": record.get("comments", 0),
+                "reactions": record.get("reactions", 0),
+                "state": record.get("state"),
+                "repo_full_name": record.get("repo_full_name"),
+                "number": record.get("number"),
+                "labels": record.get("labels", []),
+            },
+            ensure_ascii=False,
+        ),
+        raw=json.dumps(record.get("raw") or record, ensure_ascii=False),
+    )
+
+
+def from_reddit(record: dict[str, Any]) -> PostRow:
+    native_id = _required(record, "post_id")
+    keyword = record.get("keyword")
+
+    return PostRow(
+        id=f"reddit:{native_id}",
+        platform="reddit",
+        native_id=native_id,
+        # author_fullname("t2_xxx")は改名で変わらない。author(表示名)は変わりうる
+        author_id=record.get("author_id") or None,
+        author_handle=record.get("author") or None,
+        text=record.get("text", ""),
+        url=record.get("url") or None,
+        # 検索APIは言語を返さない
+        lang=None,
+        # created_utc(epoch)はmodels側でISO8601へ変換済み
+        posted_at=_parse_timestamp(record.get("created_at")),
+        collected_at=_parse_timestamp(record.get("collected_at")),
+        matched_keywords=[keyword] if isinstance(keyword, str) and keyword else [],
+        metrics=json.dumps(
+            {
+                "score": record.get("score", 0),
+                "num_comments": record.get("num_comments", 0),
+                "upvote_ratio": record.get("upvote_ratio"),
+                "subreddit": record.get("subreddit"),
+                "link_url": record.get("link_url"),
+            },
+            ensure_ascii=False,
+        ),
+        raw=json.dumps(record.get("raw") or record, ensure_ascii=False),
+    )
+
+
+ADAPTERS = {
+    "bluesky": from_bluesky,
+    "youtube": from_youtube,
+    "hackernews": from_hackernews,
+    "github": from_github,
+    "reddit": from_reddit,
+}

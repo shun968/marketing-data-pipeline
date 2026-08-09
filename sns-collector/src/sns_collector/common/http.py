@@ -23,6 +23,7 @@ def get_json(
     url: str,
     params: dict[str, Any],
     *,
+    headers: dict[str, str] | None = None,
     timeout: float = TIMEOUT_SECONDS,
     interval: float = REQUEST_INTERVAL_SECONDS,
     max_attempts: int = MAX_ATTEMPTS,
@@ -33,10 +34,71 @@ def get_json(
     再試行しても回復しない場合、および再試行対象外のステータスの場合は
     HTTPError を送出する。呼び出し側でキーワード単位に捕捉すること。
     """
+    return _request_json(
+        "GET",
+        url,
+        params=params,
+        headers=headers,
+        timeout=timeout,
+        interval=interval,
+        max_attempts=max_attempts,
+        label=label,
+    )
+
+
+def post_json(
+    url: str,
+    *,
+    data: dict[str, Any] | None = None,
+    headers: dict[str, str] | None = None,
+    auth: tuple[str, str] | None = None,
+    timeout: float = TIMEOUT_SECONDS,
+    interval: float = REQUEST_INTERVAL_SECONDS,
+    max_attempts: int = MAX_ATTEMPTS,
+    label: str = "",
+) -> dict[str, Any]:
+    """レート制限に配慮したPOST。挙動はget_jsonと同じ(ペーシング・再試行)。
+
+    Redditのトークン取得のように、検索系(GET)とは別にPOSTが要るプラットフォーム向け。
+    """
+    return _request_json(
+        "POST",
+        url,
+        data=data,
+        headers=headers,
+        auth=auth,
+        timeout=timeout,
+        interval=interval,
+        max_attempts=max_attempts,
+        label=label,
+    )
+
+
+def _request_json(
+    method: str,
+    url: str,
+    *,
+    params: dict[str, Any] | None = None,
+    data: dict[str, Any] | None = None,
+    headers: dict[str, str] | None = None,
+    auth: tuple[str, str] | None = None,
+    timeout: float,
+    interval: float,
+    max_attempts: int,
+    label: str,
+) -> dict[str, Any]:
     time.sleep(interval)
 
     for attempt in range(1, max_attempts + 1):
-        response = requests.get(url, params=params, timeout=timeout)
+        # requests.request(method, ...) へ一本化しない。get_json/post_jsonの
+        # 呼び分けはtest_http.pyがrequests.get/requests.postを個別にパッチする
+        # 前提になっており、一本化するとその前提を壊す
+        if method == "GET":
+            response = requests.get(url, params=params, headers=headers, timeout=timeout)
+        else:
+            response = requests.post(
+                url, params=params, data=data, headers=headers, auth=auth, timeout=timeout
+            )
 
         if response.status_code not in RETRYABLE_STATUS or attempt == max_attempts:
             response.raise_for_status()
