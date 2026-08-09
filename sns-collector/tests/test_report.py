@@ -269,6 +269,33 @@ class TestRenderMarkdown:
         ]:
             assert heading in markdown
 
+    def test_自由記述にパイプや改行があってもテーブルを壊さない(self, conn):
+        """summary/competitorsはLLM抽出の自由記述で統制語彙が無く、|や改行を含みうる。"""
+        _insert_post(conn, post_id="p1", posted_at=datetime(2026, 8, 3))
+        _insert_insight(
+            conn,
+            post_id="p1",
+            pain_level=3,
+            monetizable=True,
+            competitors=["A | B\nC"],
+            extracted_at=datetime(2026, 8, 3),
+        )
+        conn.execute(
+            "UPDATE insights SET summary = ? WHERE post_id = ?",
+            ["価格|プラン\nが複雑", "p1"],
+        )
+
+        report = build_report(conn, since=SINCE, until=UNTIL)
+        markdown = render_markdown(report)
+
+        # summaryは箇条書き、competitorsはテーブルのセルに入る。
+        # どちらも | がエスケープされ、改行が空白に畳まれているはず
+        assert "価格\\|プラン が複雑" in markdown
+        assert "A \\| B C" in markdown
+        # 生のパイプ・改行が残っていれば行数・列数が壊れる
+        assert "価格|プラン" not in markdown
+        assert "A | B\nC" not in markdown
+
 
 class TestGenerate:
     def test_ファイルを書き出す(self, conn, tmp_path):

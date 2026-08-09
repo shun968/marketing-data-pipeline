@@ -24,6 +24,17 @@ DEFAULT_TOP_N = 10
 _SINCE_RE = re.compile(r"^(\d+)d$")
 
 
+def _to_naive_utc(value: datetime) -> datetime:
+    """aware datetimeをUTCのnaiveへ揃える。既にnaiveならそのまま返す。
+
+    `posts.posted_at` 等と同じくnaive UTCで統一しないと比較・減算が壊れる
+    （db/adapters.py の `_parse_timestamp` と同じ理由）。
+    """
+    if value.tzinfo is not None:
+        return value.astimezone(UTC).replace(tzinfo=None)
+    return value
+
+
 def parse_since(value: str, *, now: datetime | None = None) -> datetime:
     """`7d` のような相対指定を、期間の開始時刻（naive UTC）へ変換する。
 
@@ -34,9 +45,7 @@ def parse_since(value: str, *, now: datetime | None = None) -> datetime:
     if not m:
         raise ValueError(f"--since は '7d' のような形式で指定する: {value}")
     days = int(m.group(1))
-    now = now or datetime.now(UTC)
-    if now.tzinfo is not None:
-        now = now.astimezone(UTC).replace(tzinfo=None)
+    now = _to_naive_utc(now or datetime.now(UTC))
     return now - timedelta(days=days)
 
 
@@ -279,7 +288,7 @@ def build_report(
     until: datetime | None = None,
     top_n: int = DEFAULT_TOP_N,
 ) -> Report:
-    until = until or datetime.now(UTC).astimezone(UTC).replace(tzinfo=None)
+    until = _to_naive_utc(until or datetime.now(UTC))
     return Report(
         since=since,
         until=until,
@@ -295,6 +304,18 @@ def build_report(
 
 def _fmt_dt(value: datetime) -> str:
     return value.strftime("%Y-%m-%d")
+
+
+def _escape_md(value: str | None) -> str:
+    """Markdownのテーブル・箇条書きへ埋め込んでも壊れない形にする。
+
+    `summary`・`competitors`はLLM抽出の自由記述で統制語彙が無い
+    （extract/schema.py は非空・400字以内しか検証しない）。`|`が入ると
+    テーブルの列がずれ、改行が入ると行・箇条書き項目が壊れる。
+    """
+    if not value:
+        return "-"
+    return value.replace("|", "\\|").replace("\r", " ").replace("\n", " ")
 
 
 def render_markdown(report: Report) -> str:
@@ -313,7 +334,7 @@ def render_markdown(report: Report) -> str:
         lines.append("| 日付 | platform | 件数 |")
         lines.append("|---|---|---|")
         for row in report.daily_counts:
-            lines.append(f"| {row.day} | {row.platform} | {row.count} |")
+            lines.append(f"| {row.day} | {_escape_md(row.platform)} | {row.count} |")
     else:
         lines.append("該当なし")
     lines.append("")
@@ -324,7 +345,9 @@ def render_markdown(report: Report) -> str:
         lines.append("| insight_type | 件数 | 代表投稿 |")
         lines.append("|---|---|---|")
         for row in report.insight_type_counts:
-            lines.append(f"| {row.insight_type} | {row.count} | {row.example_url or '-'} |")
+            lines.append(
+                f"| {_escape_md(row.insight_type)} | {row.count} | {_escape_md(row.example_url)} |"
+            )
     else:
         lines.append("該当なし")
     lines.append("")
@@ -338,8 +361,8 @@ def render_markdown(report: Report) -> str:
             diff = row.count - row.previous_count
             sign = "+" if diff >= 0 else ""
             lines.append(
-                f"| {row.domain} | {row.count} | {row.previous_count} | {sign}{diff} | "
-                f"{row.example_url or '-'} |"
+                f"| {_escape_md(row.domain)} | {row.count} | {row.previous_count} | "
+                f"{sign}{diff} | {_escape_md(row.example_url)} |"
             )
     else:
         lines.append("該当なし")
@@ -349,7 +372,8 @@ def render_markdown(report: Report) -> str:
     lines.append("")
     if report.top_signals:
         for row in report.top_signals:
-            lines.append(f"- [{row.platform}/{row.domain or '-'}] {row.summary or row.post_id}")
+            summary = _escape_md(row.summary) if row.summary else row.post_id
+            lines.append(f"- [{_escape_md(row.platform)}/{_escape_md(row.domain)}] {summary}")
             if row.url:
                 lines.append(f"  {row.url}")
     else:
@@ -362,7 +386,7 @@ def render_markdown(report: Report) -> str:
         lines.append("| キーワード | 件数 |")
         lines.append("|---|---|")
         for row in report.top_keywords:
-            lines.append(f"| {row.keyword} | {row.count} |")
+            lines.append(f"| {_escape_md(row.keyword)} | {row.count} |")
     else:
         lines.append("該当なし")
     lines.append("")
@@ -373,7 +397,9 @@ def render_markdown(report: Report) -> str:
         lines.append("| キーワードA | キーワードB | 件数 |")
         lines.append("|---|---|---|")
         for row in report.top_keyword_pairs:
-            lines.append(f"| {row.keyword_a} | {row.keyword_b} | {row.count} |")
+            lines.append(
+                f"| {_escape_md(row.keyword_a)} | {_escape_md(row.keyword_b)} | {row.count} |"
+            )
     else:
         lines.append("該当なし")
     lines.append("")
@@ -385,7 +411,8 @@ def render_markdown(report: Report) -> str:
         lines.append("|---|---|---|")
         for row in report.new_competitors:
             lines.append(
-                f"| {row.product} | {_fmt_dt(row.first_seen)} | {row.example_url or '-'} |"
+                f"| {_escape_md(row.product)} | {_fmt_dt(row.first_seen)} | "
+                f"{_escape_md(row.example_url)} |"
             )
     else:
         lines.append("該当なし")
@@ -414,8 +441,7 @@ def generate(
     ファイル名を秒まで持たせると、cronで日次実行するたびにファイルが増え続け、
     `reports/` が肥大化する。日付だけにすることで、同日の再実行は上書きになる。
     """
-    now = now or datetime.now(UTC)
-    until = now.astimezone(UTC).replace(tzinfo=None) if now.tzinfo is not None else now
+    until = _to_naive_utc(now or datetime.now(UTC))
     start = parse_since(since, now=until)
 
     report = build_report(conn, since=start, until=until, top_n=top_n)
