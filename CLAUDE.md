@@ -9,11 +9,14 @@ SNS上の投稿から市場の潜在的な顧客要望・製品優位性を継�
 ### 収集データを外部へ出さない
 
 ```
-sns-collector/data/     収集した生データ・DB     ← 絶対にコミットしない
-sns-collector/state/    ログ・ロック              ← 絶対にコミットしない
-sns-collector/reports/  生成レポート             ← 絶対にコミットしない
-sns-collector/.env      APIキー                  ← 絶対にコミットしない
-.metrics/               ガードレール抵触の記録     ← 絶対にコミットしない
+sns-collector/data/        収集した生データ・DB     ← 絶対にコミットしない
+sns-collector/state/       ログ・ロック              ← 絶対にコミットしない
+sns-collector/reports/     生成レポート             ← 絶対にコミットしない
+sns-collector/.env         APIキー                  ← 絶対にコミットしない
+maritime-collector/data/   同上（別トピックのインスタンス。ADR-0008） ← 絶対にコミットしない
+maritime-collector/state/  同上                                     ← 絶対にコミットしない
+maritime-collector/reports/ 同上                                    ← 絶対にコミットしない
+.metrics/                  ガードレール抵触の記録     ← 絶対にコミットしない
 ```
 
 すべて `.gitignore` 済みだが、**このリポジトリはPublicである**。`git add -A` や `git add .` を使う際は、これらが含まれていないことを必ず確認する。
@@ -60,6 +63,11 @@ sns-collector/            収集ツール（Python 3.11+ / uv）
     db/                   分析ストア（DuckDB）。スキーマ・正規化・ロード
     bluesky/ youtube/     プラットフォーム別のclient/search/models
   tests/                  単体テストのみ。実API通信は行わない
+maritime-collector/       sns-collectorを別トピックへ再利用するインスタンス（ADR-0008）
+  CLAUDE.md               ← Pythonコードは持たない。この領域固有の情報はこちら
+  config/                 このトピック専用のkeywords.yaml / domains.yaml
+  prompts/                このトピック専用の抽出プロンプト
+  scripts/cron_run.sh     このトピック専用のcronラッパー
 Taskfile.yml              開発タスク（lint / GitHub設定）
 ```
 

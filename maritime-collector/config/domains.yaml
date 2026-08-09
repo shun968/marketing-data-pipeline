@@ -1,0 +1,44 @@
+# 観測対象ドメインの定義(maritime-collector)
+#
+# 役割:
+#   1. 事業仮説とその検証手段を明示する（何を確かめたくて収集しているのか）
+#   2. 構造化抽出における `insights.domain` の統制語彙となる
+#      → ここに定義された id 以外を抽出結果に入れてはならない
+#
+# sns-collector/config/domains.yaml と同じスキーマ。書式・原則の説明はそちらを参照する
+# （このファイルには書き写さない）。
+#
+# **このファイルは実データ検証前のドラフトである。** sns-collector/config/domains.yaml の
+# 3ドメインも、Phase 0で実収集をもとに何度か改訂して今の形になった（改訂履歴を参照）。
+# ここも同じ手順（収集→サンプル確認→改訂）を経る前提で書いてある。
+#
+# 最終更新: 2026-08-10
+
+domains:
+  - id: collision_avoidance_ar
+    label: AR等を用いた船舶の衝突予知・衝突予防支援
+    hypothesis: |
+      見張り・衝突予知の負担、既存装備（ARPA/ECDIS/レーダー等）の使いにくさへの
+      不満が実在し、SNS上で言語化されているか。
+      具体的には、狭視界・夜間の見張り負担、他船との異常接近（ニアミス）、
+      既存装備のアラート過多・見落とし、操船者の疲労など。
+    service_candidate: |
+      未定（仮説検証前）。AR/AIを用いたリアルタイム衝突予知支援に需要があるかを見る。
+    sns_collection: true
+    expected_signal: null
+    note: |
+      初期仮説。実データ検証前（Phase 0 未実施）。config/keywords.yaml の
+      候補キーワードもまだ実データで確認していない。
+
+  - id: other
+    label: 該当なし・分類不能
+    hypothesis: null
+    service_candidate: null
+    sns_collection: false
+    expected_signal: null
+    note: |
+      上記のいずれにも当てはまらない場合の受け皿。
+      このドメインの比率が高い場合、キーワード設計が空振りしている兆候である。
+
+# 改訂履歴
+# 2026-08-10 初版作成（ADR-0008）。実データ未検証のドラフト。

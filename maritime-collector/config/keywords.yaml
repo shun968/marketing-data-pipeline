@@ -1,0 +1,41 @@
+# 検索キーワード定義(maritime-collector)
+#
+# キーワード設計の3原則・実測の印([実測◎/○/△])の意味は
+# sns-collector/README.md「検索キーワードの編集」を参照する（このファイルには書き写さない）。
+#
+# **このファイルは実データ検証前のドラフトである。** 印の無いキーワードは未検証。
+# 実データで確認するには、sns_collector.bluesky.client.search_posts を認証無し・
+# DB非破壊で呼び、ヒット件数・アカウントの多様性を見る
+# （sns-collector/CLAUDE.md「質の確認に本収集を使わない」と同じ手順）。
+# 確認できたら [実測◎/○/△] を付け、この改訂履歴に根拠を残してから
+# scripts/cron_run.sh での定期収集を有効にすること。
+#
+# YouTubeは未設定（対象に含めるかは別途判断。含めるなら別のGoogle Cloud
+# プロジェクト・APIキーが要る。sns-collectorのクオータと分けるため）。
+#
+# ドメインの定義と仮説: config/domains.yaml
+# 最終更新: 2026-08-10
+
+bluesky:
+  sort: latest # latest | top
+  limit_per_keyword: 50 # 1リクエストあたり取得件数(最大100)
+  keywords:
+    # ── collision_avoidance_ar: AR等を用いた船舶の衝突予知・衝突予防支援 ──
+    - "ARPA 使いにくい" # 未検証。ARPA(自動衝突予防援助装置)への不満を狙う
+    - "ECDIS トラブル" # 未検証。電子海図装置のトラブル
+    - "見張り 負担 航海" # 未検証。見張り業務の負担感
+    - "衝突予防援助装置" # 未検証。正式名称そのもの。ヒット数は少ない見込み
+    - "他船 接近 気づかない" # 未検証。ニアミス・見落としの体験談
+    - "AIS 見えない" # 未検証。AIS(船舶自動識別装置)の死角・見落とし
+
+hackernews:
+  tags: "(story,comment)" # Algoliaのタグフィルタ。story=投稿本文、comment=返信
+  hits_per_page: 50
+  keywords:
+    # ── collision_avoidance_ar ──────────────────────────────────────────
+    - "collision avoidance ship" # 未検証
+    - "ARPA radar" # 未検証
+    - "AIS vessel tracking" # 未検証
+
+# 改訂履歴
+# 2026-08-10 初版作成（ADR-0008）。実データ未検証のドラフト。
