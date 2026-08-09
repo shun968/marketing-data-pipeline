@@ -168,6 +168,17 @@ git add maritime-collector/prompts docs
 assert_exit 1 "検知: 別トピックのプロンプトの文言が別のドキュメントにもある"
 teardown
 
+# is_prompt() は ^ でアンカーしている。ネストした場所に偶然
+# prompts/extract-*.md があっても、トップレベル1階層のトピックプロンプト
+# とは別扱いにする(除外を広げすぎない)
+setup
+mkdir -p sns-collector/prompts sns-collector/tests/fixtures/prompts
+printf '# v1\n\n%s\n' "${LONG}" > sns-collector/prompts/extract-v1.md
+printf '# fixture\n\n%s\n' "${LONG}" > sns-collector/tests/fixtures/prompts/extract-old.md
+git add sns-collector/prompts sns-collector/tests/fixtures
+assert_exit 1 "検知: ネストしたprompts/extract-*.mdはトピックプロンプトとして除外しない"
+teardown
+
 # --- リポジトリ自身 ---
 
 # 検査を足した本人が真っ先に違反する。実リポジトリで通ることを確かめる

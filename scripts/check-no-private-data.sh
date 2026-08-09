@@ -119,8 +119,9 @@ for f in "${staged[@]}"; do
   #    追跡が前提。実キーが書かれた場合は下の「秘匿情報らしき文字列」検査で捕捉する。
   # 3) 最後に .env 系を禁止する。
   case "${f}" in
-    sns-collector/data/* | sns-collector/state/* | sns-collector/reports/*) ;;
-    maritime-collector/data/* | maritime-collector/state/* | maritime-collector/reports/*) ;;
+    # *-collector/ は各トピックの収集インスタンスの命名規約（ADR-0008）。
+    # 規約に沿う限り、トピックを追加してもここを編集する必要がない
+    *-collector/data/* | *-collector/state/* | *-collector/reports/*) ;;
     .env.example | .env.sample | */.env.example | */.env.sample) continue ;;
     .env | .env.* | */.env | */.env.*) ;;
     *) continue ;;
