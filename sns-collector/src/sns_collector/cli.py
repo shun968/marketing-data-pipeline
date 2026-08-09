@@ -10,6 +10,7 @@ import duckdb
 from . import embed as embed_mod
 from . import extract as extract_mod
 from . import graph as graph_mod
+from . import report as report_mod
 from . import search as search_mod
 from .bluesky import search as bluesky_search
 from .common.config import (
@@ -29,6 +30,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_KEYWORDS_PATH = PROJECT_ROOT / "config" / "keywords.yaml"
 DEFAULT_DATA_DIR = PROJECT_ROOT / "data"
 DEFAULT_DOMAINS_PATH = PROJECT_ROOT / "config" / "domains.yaml"
+DEFAULT_REPORTS_DIR = PROJECT_ROOT / "reports"
 
 # 収集コマンド名 -> (収集モジュール, 設定ロード関数)。
 # サブパーサの登録・実行時ディスパッチの両方をこの1箇所から辿れるようにする。
@@ -180,6 +182,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     se.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
     se.add_argument("--db", type=Path, default=None)
 
+    rp = sub.add_parser("report", help="決定論的な定量サマリをMarkdownで生成する")
+    rp.add_argument(
+        "--since", default=report_mod.DEFAULT_SINCE, help="対象期間の長さ。例: 7d(既定)"
+    )
+    rp.add_argument(
+        "--top-n", type=int, default=report_mod.DEFAULT_TOP_N, help="頻出キーワード等の上位件数"
+    )
+    rp.add_argument("--reports-dir", type=Path, default=DEFAULT_REPORTS_DIR)
+    rp.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
+    rp.add_argument("--db", type=Path, default=None)
+
     return parser.parse_args(argv)
 
 
@@ -330,6 +343,28 @@ def _run_search(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_report(args: argparse.Namespace) -> int:
+    with connect(_db_path(args)) as conn:
+        result = report_mod.generate(
+            conn,
+            args.reports_dir,
+            since=args.since,
+            top_n=args.top_n,
+        )
+
+    r = result.report
+    print(f"レポート: {result.path}")
+    print(f"  期間: {r.since:%Y-%m-%d} 〜 {r.until:%Y-%m-%d}")
+    print(f"  最重要シグナル(pain_level=3 かつ monetizable=true): {len(r.top_signals)}件")
+    if r.new_competitors:
+        names = ", ".join(c.product for c in r.new_competitors)
+        print(f"  新規に観測された競合製品: {names}")
+    print()
+    print("洞察・仮説の加筆は `prompts/report-insights.md` の作業指示を")
+    print("Claude Codeセッションで実行すること。")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
 
@@ -351,6 +386,9 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.command == "search":
             return _run_search(args)
+
+        if args.command == "report":
+            return _run_report(args)
 
         if args.command in COLLECTORS:
             module, load_config = COLLECTORS[args.command]

@@ -340,6 +340,31 @@ FROM edges WHERE edge_type = 'similar_to' AND src_id = 'bluesky:at://...'
 ORDER BY weight DESC;
 ```
 
+### 定期レポート
+
+`posts` / `insights` に対する決定論的な集計のみを行い、Markdownを生成する（F-14〜F-16）。LLMを呼ばないため、cronで無人生成できる（F-15）。
+
+```sh
+uv run sns-collector report                 # 直近7日分
+uv run sns-collector report --since 14d      # 直近14日分
+uv run sns-collector report --top-n 20       # 頻出キーワード等の上位件数を変える
+```
+
+`reports/report-<since>_<until>.md`（例: `reports/report-2026-08-01_2026-08-08.md`）へ書き出す。**同じ期間で再実行すると同じファイルへ上書きする。** 秒単位のIDを持たせないのは、cronの日次実行のたびにファイルが増え続けるのを避けるため。
+
+出力内容:
+
+- 期間内の新規観測件数（プラットフォーム別・日次）
+- `insight_type` 別の分布（代表投稿つき）
+- `domain` 別の件数と前期間比
+- `pain_level=3` かつ `monetizable=true` の投稿の全件リスト（最重要シグナル。件数の上限は無い）
+- 頻出キーワードと共起ペア上位
+- 新規に観測された競合製品名（過去のどの期間にも登場していなかったもの）
+
+**`domain`・`insight_type` は `extracted_at`、新規観測件数は `collected_at`、頻出キーワードは `collected_at` を基準に期間を切る。** 抽出はバッチ運用のため投稿の収集時期とはずれる。「この期間に何を集めたか」と「この期間に何を抽出して分かったか」を区別するため、集計の基準時刻をセクションごとに変えている。
+
+**洞察・仮説の加筆（F-16）はここでは行わない。** 生成されたMarkdownを入力に、`prompts/report-insights.md` の作業指示に従ってClaude Codeセッションで追記する。加筆結果は同じファイルへ上書きする（定量部分と洞察部分を1つのレポートとして残す）。
+
 ### バックアップ
 
 DBは単一ファイルなので、コピーで完結する（N-07）。
@@ -378,9 +403,19 @@ run跨ぎの重複を避けるため、収集した投稿は同時に`data/analy
 15 */3 * * * /path/to/marketing-data-pipeline/sns-collector/scripts/cron_run.sh youtube
 # Hacker Newsキーワード検索(3時間おき、他の2つと30分ずらして負荷分散)
 30 */3 * * * /path/to/marketing-data-pipeline/sns-collector/scripts/cron_run.sh hackernews
+# 定期レポート(週次、月曜9時。collectorと重ならない時間を選ぶ)
+0 9 * * 1 /path/to/marketing-data-pipeline/sns-collector/scripts/cron_run.sh report
 ```
 
-実行ログは`state/.logs/{bluesky,youtube,hackernews}.log`に記録される。
+実行ログは`state/.logs/{bluesky,youtube,hackernews,report}.log`に記録される。
+
+**`extract` / `embed` / `graph rebuild` はcronに登録しない。** 抽出はClaude Codeセッションを要する手動運用（[構造化抽出](#構造化抽出)）、埋め込みとグラフ再構築は抽出結果に依存するため、抽出のたびに手動で回す。週次運用の手順は次の通り。
+
+1. `uv run sns-collector extract prepare` でバッチを作り、Claude Codeセッションで抽出する
+2. `uv run sns-collector extract load <batch-id>` で取り込む
+3. `uv run sns-collector embed` で新しく増えた `summary` を埋め込む
+4. `uv run sns-collector graph rebuild` でエッジを最新化する（省略可。`similar_to` を使わないなら必須ではない）
+5. `uv run sns-collector report` は週次cronが自動生成する。生成後、`prompts/report-insights.md` の作業指示に従ってClaude Codeセッションで洞察を加筆する
 
 ### YouTubeのクオータと実行頻度
 
