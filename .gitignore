@@ -232,6 +232,11 @@ sns-collector/data/
 sns-collector/state/
 sns-collector/reports/
 
+# maritime-collector: 同上(ADR-0008。トピックごとに独立したインスタンス)
+maritime-collector/data/
+maritime-collector/state/
+maritime-collector/reports/
+
 
 # ガードレール抵触の記録(ローカル計測・非公開)
 .metrics/
