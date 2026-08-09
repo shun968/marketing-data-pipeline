@@ -37,6 +37,11 @@ _RESET_HINT = (
 )
 
 
+def _format_models(models: set[str | None]) -> str:
+    """モデル名の集合を人が読める形にする。NULLは「不明」と表示する。"""
+    return ", ".join(sorted("不明" if m is None else m for m in models))
+
+
 def corpus_models(conn: duckdb.DuckDBPyConnection) -> set[str | None]:
     """既存の埋め込みが使っているモデル名の集合。埋め込みが無ければ空。
 
@@ -66,7 +71,7 @@ def ensure_model_matches(conn: duckdb.DuckDBPyConnection, model_name: str) -> No
     if not models or models == {model_name}:
         return
 
-    found = ", ".join(sorted("不明" if m is None else m for m in models))
+    found = _format_models(models)
     raise ValueError(
         f"既存の埋め込みのモデル（{found}）が {model_name} と一致しない。"
         f"次元が異なると検索が落ちる。同じモデルを指定するか、{_RESET_HINT}"

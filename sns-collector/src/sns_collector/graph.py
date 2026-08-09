@@ -18,7 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from .embed import corpus_models
+from .embed import _RESET_HINT, _format_models, corpus_models
 
 if TYPE_CHECKING:  # pragma: no cover - 型注釈のためだけに読む
     import duckdb
@@ -106,21 +106,35 @@ _NODE_TYPES: dict[str, tuple[str, str]] = {
 # 可変長 `FLOAT[]`）。そのため件数で先に止める（`_SIMILAR_MAX_INSIGHTS`）。
 #
 # 上位K件は「src < dst」へ畳む前の全方向で採る。畳んでから採ると、
-# IDが小さい側の近傍が構造的に落ちて上位K件が近傍の上位K件でなくなる
+# IDが小さい側の近傍が構造的に落ちて上位K件が近傍の上位K件でなくなる。
+#
+# **類似度そのものは a.post_id < b.post_id の片方向で1回だけ計算する。**
+# コサイン類似度は対称（sim(a,b) == sim(b,a)）なので、全方向(a<>b)で計算すると
+# 同じ値を2回計算することになり、この節の冒頭に書いた総当たりのコストが
+# そのまま倍になる。`mirrored` で計算済みの値を複製して両方向へ展開してから
+# 上のtop_K選定に回す
 _SIMILAR_SQL = """
     WITH vec AS (
         SELECT post_id, embedding FROM insights WHERE embedding IS NOT NULL
     ),
-    pair AS (
+    above_threshold AS (
         SELECT * FROM (
             SELECT
-                a.post_id AS src,
-                b.post_id AS dst,
+                a.post_id AS a_id,
+                b.post_id AS b_id,
                 list_cosine_similarity(a.embedding, b.embedding) AS sim
             FROM vec a
-            JOIN vec b ON a.post_id <> b.post_id
+            JOIN vec b ON a.post_id < b.post_id
         )
         WHERE sim >= ?
+    ),
+    mirrored AS (
+        SELECT a_id AS src, b_id AS dst, sim FROM above_threshold
+        UNION ALL
+        SELECT b_id AS src, a_id AS dst, sim FROM above_threshold
+    ),
+    pair AS (
+        SELECT * FROM mirrored
         QUALIFY row_number() OVER (PARTITION BY src ORDER BY sim DESC, dst) <= ?
     ),
     canon AS (
@@ -155,11 +169,9 @@ def _ensure_single_model(conn: duckdb.DuckDBPyConnection) -> None:
     if len(models) <= 1:
         return
 
-    found = ", ".join(sorted("不明" if m is None else m for m in models))
+    found = _format_models(models)
     raise ValueError(
-        f"埋め込みのモデルが混在している（{found}）。次元が異なると類似度計算が落ちる。"
-        "UPDATE insights SET embedding = NULL, embedding_model = NULL; "
-        "の後に埋め込み直すこと。"
+        f"埋め込みのモデルが混在している（{found}）。次元が異なると類似度計算が落ちる。{_RESET_HINT}"
     )
 
 
