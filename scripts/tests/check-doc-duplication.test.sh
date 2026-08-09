@@ -148,6 +148,26 @@ git add sns-collector/prompts docs
 assert_exit 1 "検知: プロンプトの文言が別のドキュメントにもある"
 teardown
 
+# 除外はsns-collector限定ではない。同じ抽出パイプラインを別トピックのconfig/dataへ
+# 向けて再利用するインスタンス(例: maritime-collector/)が、トピック非依存の
+# 記述(スキーマ・判定基準等)を正当に引き継ぐケース
+setup
+mkdir -p sns-collector/prompts maritime-collector/prompts
+printf '# sns-collector v1\n\n%s\n' "${LONG}" > sns-collector/prompts/extract-v1.md
+printf '# maritime-collector v1\n\n%s\n' "${LONG}" > maritime-collector/prompts/extract-v1.md
+git add sns-collector/prompts maritime-collector/prompts
+assert_exit 0 "誤検知しない: 別トピックのプロンプトどうしの重複"
+teardown
+
+# プロンプトの除外を緩めすぎていないか。プロンプト以外への漏れは引き続き検知する
+setup
+mkdir -p maritime-collector/prompts docs
+printf '# v1\n\n%s\n' "${LONG}" > maritime-collector/prompts/extract-v1.md
+printf '# 設計\n\n%s\n' "${LONG}" > docs/design.md
+git add maritime-collector/prompts docs
+assert_exit 1 "検知: 別トピックのプロンプトの文言が別のドキュメントにもある"
+teardown
+
 # --- リポジトリ自身 ---
 
 # 検査を足した本人が真っ先に違反する。実リポジトリで通ることを確かめる

@@ -120,6 +120,7 @@ for f in "${staged[@]}"; do
   # 3) 最後に .env 系を禁止する。
   case "${f}" in
     sns-collector/data/* | sns-collector/state/* | sns-collector/reports/*) ;;
+    maritime-collector/data/* | maritime-collector/state/* | maritime-collector/reports/*) ;;
     .env.example | .env.sample | */.env.example | */.env.sample) continue ;;
     .env | .env.* | */.env | */.env.*) ;;
     *) continue ;;

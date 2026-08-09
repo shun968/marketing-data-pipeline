@@ -55,6 +55,13 @@ assert_exit 1 "収集データ(sns-collector/data/)を検出する"
 teardown
 
 setup
+mkdir -p maritime-collector/data
+echo '{"text":"投稿本文"}' > maritime-collector/data/posts.jsonl
+git add -f maritime-collector/data/posts.jsonl
+assert_exit 1 "収集データ(maritime-collector/data/)を検出する"
+teardown
+
+setup
 printf 'BLUESKY_APP_PASSWORD=%s-%s-%s-%s\n' abcd efgh ijkl mnop > .env
 git add -f .env
 assert_exit 1 ".envを検出する"

@@ -47,9 +47,13 @@ mapfile -d '' -t targets < "${list_file}"
 # 各行を `正規化した文<TAB>ファイル:行番号` の形へ落とし、
 # 同じ文が2つ以上のファイルに出るものを重複とみなす
 #
-# バージョン付きプロンプト(sns-collector/prompts/extract-*.md)どうしの重複は許す。
-# 版ごとに独立した成果物で、改訂しても旧版を残す（どの版で抽出したかを
+# バージョン付きプロンプト(<トピックのディレクトリ>/prompts/extract-*.md)どうしの
+# 重複は許す。版ごとに独立した成果物で、改訂しても旧版を残す（どの版で抽出したかを
 # insights.extractor_version から辿るため）。v2がv1の大半を引き継ぐのは正常である。
+#
+# sns-collector限定にしないのは、同じ抽出パイプラインを別トピックのconfig/dataへ
+# 向けて再利用するインスタンス（例: maritime-collector/）が、スキーマ・判定基準等の
+# トピック非依存の記述をプロンプト間で正当に引き継ぐため（ADR-0008）。
 #
 # **対象から外すのではなく、プロンプト間の組み合わせだけを許す。** 外してしまうと、
 # プロンプトの文言を設計書などへ書き写しても検出できない穴ができる。
@@ -58,7 +62,7 @@ mapfile -d '' -t targets < "${list_file}"
 # ファイルであり、注釈を入れると指示文に混ざって読ませてしまう。
 duplicates="$(
   awk -v min_len="${MIN_LENGTH}" '
-    function is_prompt(f) { return f ~ /(^|\/)sns-collector\/prompts\/extract-[^\/]*\.md$/ }
+    function is_prompt(f) { return f ~ /(^|\/)[^\/]+\/prompts\/extract-[^\/]*\.md$/ }
 
     FNR == 1 { in_fence = 0 }
 
