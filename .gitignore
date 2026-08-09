@@ -235,3 +235,6 @@ sns-collector/reports/
 
 # ガードレール抵触の記録(ローカル計測・非公開)
 .metrics/
+
+# Claude Codeの個人設定(端末固有の許可はここへ置く)
+.claude/settings.local.json
