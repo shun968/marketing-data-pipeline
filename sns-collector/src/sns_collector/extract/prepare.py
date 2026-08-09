@@ -47,8 +47,8 @@ def _batch_id(conn: duckdb.DuckDBPyConnection, now: datetime) -> tuple[str, date
         now = now + timedelta(seconds=1)
 
 
-def prompt_path(version: str) -> Path:
-    return PROMPTS_DIR / f"extract-{version}.md"
+def prompt_path(version: str, prompts_dir: Path | None = None) -> Path:
+    return (prompts_dir or PROMPTS_DIR) / f"extract-{version}.md"
 
 
 # 抽出の既定はBluesky・Hacker Newsの需要シグナル系だけ。
@@ -64,12 +64,11 @@ def prompt_path(version: str) -> Path:
 DEFAULT_PLATFORMS = ("bluesky", "hackernews")
 
 
-def _read_template(version: str) -> str:
-    path = prompt_path(version)
+def _read_template(version: str, prompts_dir: Path | None = None) -> str:
+    path = prompt_path(version, prompts_dir)
     if not path.exists():
-        available = sorted(
-            p.stem.removeprefix("extract-") for p in PROMPTS_DIR.glob("extract-*.md")
-        )
+        base = prompts_dir or PROMPTS_DIR
+        available = sorted(p.stem.removeprefix("extract-") for p in base.glob("extract-*.md"))
         raise FileNotFoundError(
             f"抽出プロンプトが無い: {path}（利用できる版: {', '.join(available) or 'なし'}）"
         )
@@ -158,14 +157,20 @@ def prepare(
     platforms: tuple[str, ...] | list[str] = DEFAULT_PLATFORMS,
     reextract: str | None = None,
     now: datetime | None = None,
+    prompts_dir: Path | None = None,
 ) -> PrepareResult | None:
-    """未抽出の投稿をバッチへ書き出す。対象が無ければ None。"""
+    """未抽出の投稿をバッチへ書き出す。対象が無ければ None。
+
+    `prompts_dir` は既定で `PROMPTS_DIR`（sns-collector/prompts）。同じパッケージを
+    別トピックのconfig/dataへ向けて再利用するインスタンス（例: maritime-collector/）が
+    自分のプロンプトを読ませるための上書き先。
+    """
     if not platforms:
         raise ValueError("platforms を1つ以上指定する")
 
     # テンプレートの読み込みを先に済ませる。ファイルを書いた後で失敗すると、
     # どのバッチにも属さないJSONLが extract/ に残る
-    template = _read_template(version)
+    template = _read_template(version, prompts_dir)
 
     now = now or datetime.now(UTC)
     batch_id, now = _batch_id(conn, now)

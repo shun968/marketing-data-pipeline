@@ -29,6 +29,40 @@ def test_extract_prepareのplatform引数はhackernewsを選べる(tmp_path: Pat
     assert args.platform == ["hackernews"]
 
 
+def test_extract_prepareのprompts_dir引数はPathとして解析される():
+    args = cli.parse_args(["extract", "prepare", "--prompts-dir", "/tmp/custom-prompts"])
+    assert args.prompts_dir == Path("/tmp/custom-prompts")
+
+
+def test_extract_prepareのprompts_dir未指定はNone():
+    args = cli.parse_args(["extract", "prepare"])
+    assert args.prompts_dir is None
+
+
+def test_extract_prepareはprompts_dirをprepareへ渡す(tmp_path: Path):
+    domains_path = tmp_path / "domains.yaml"
+    domains_path.write_text("domains:\n  - id: other\n", encoding="utf-8")
+    prompts_dir = tmp_path / "custom_prompts"
+
+    with patch.object(cli.extract_mod, "prepare") as mock_prepare:
+        mock_prepare.return_value = None
+        code = cli.main(
+            [
+                "extract",
+                "prepare",
+                "--data-dir",
+                str(tmp_path / "data"),
+                "--domains",
+                str(domains_path),
+                "--prompts-dir",
+                str(prompts_dir),
+            ]
+        )
+
+    assert code == 0
+    assert mock_prepare.call_args.kwargs["prompts_dir"] == prompts_dir
+
+
 @pytest.mark.parametrize("platform", ["bluesky", "youtube", "hackernews"])
 def test_収集コマンドは対応するrunと設定ロード関数へディスパッチする(
     tmp_path: Path, platform: str, monkeypatch: pytest.MonkeyPatch

@@ -394,6 +394,39 @@ def test_本文が無い投稿しか無ければバッチを作らない(tmp_pat
         assert status(conn)["posts"] == {"skipped": 1}
 
 
+def test_prompts_dirを指定すると別ディレクトリのプロンプトを読む(tmp_path: Path):
+    """同じパッケージを別トピックのconfig/dataへ向けて再利用するインスタンス用。"""
+    prompts_dir = tmp_path / "custom_prompts"
+    prompts_dir.mkdir()
+    (prompts_dir / "extract-v1.md").write_text(
+        "カスタム指示 {batch_jsonl} {result_jsonl} {domain_ids}", encoding="utf-8"
+    )
+    extract_dir = tmp_path / "extract"
+    with connect(tmp_path / "analysis.duckdb") as conn:
+        insert_records(conn, "bluesky", [BLUESKY_RECORD])
+        result = prepare(
+            conn,
+            extract_dir,
+            limit=10,
+            version="v1",
+            domain_ids=["other"],
+            prompts_dir=prompts_dir,
+        )
+
+    assert result is not None
+    instruction = result.instruction_path.read_text(encoding="utf-8")
+    assert instruction.startswith("カスタム指示 ")
+
+
+def test_prompts_dir未指定なら既定のsns_collectorプロンプトを読む(prepared):
+    """既存の呼び出し(prompts_dirを渡さない)が今までと同じ動作を保つことの確認。"""
+    conn, extract_dir, result = prepared
+
+    assert result is not None
+    instruction = result.instruction_path.read_text(encoding="utf-8")
+    assert "抽出指示" in instruction, "sns-collector/prompts/extract-v1.mdの内容が読めていない"
+
+
 def test_存在しないプロンプト版ではファイルを1つも書かない(tmp_path: Path):
     """ファイルを書いた後で失敗すると、どのバッチにも属さないJSONLが残る。"""
     extract_dir = tmp_path / "extract"
