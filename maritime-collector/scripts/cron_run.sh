@@ -7,12 +7,24 @@ set -euo pipefail
 # --data-dir/--keywords/--db/--reports-dir を明示し、sns-collector本体の
 # data/state/reports には一切触れない。
 #
+# ロック・ログまわりの実装(25-38行目)がsns-collector/scripts/cron_run.shと
+# ほぼ重複しているのは意図的である。共有ヘルパーへ切り出すと、2つのトピック
+# ディレクトリから相対パスで正しく解決させる分岐が増え、この単純なロック取得
+# 自体より複雑になる。ADR-0008がコード複製を避けたのはPythonパッケージ側の
+# 話であり、この15行程度のシェル定型句には同じ判断を適用していない。
+#
 # cwdを sns-collector/ へ移さない理由:
-#   `uv run --project <sns-collector> ...` で依存解決だけをsns-collector側に
-#   委ね、実行時のcwdはこのディレクトリ(maritime-collector/)に留める。
-#   cwdをsns-collector/へ移すと、python-dotenvが実行時cwdから.envを探すため、
-#   将来 maritime-collector/.env を置いてもそちらが見つからず、
-#   sns-collector/.env が誤って使われてしまう。
+#   `uv run --directory <topic> --project <sns-collector> ...` で依存解決は
+#   sns-collector側に委ね、実行時のcwdは`--directory`で明示的にこのディレクトリ
+#   (maritime-collector/)へ留める。cwdをsns-collector/へ移すと、python-dotenvが
+#   実行時cwdから.envを探すため、将来 maritime-collector/.env を置いてもそちらが
+#   見つからず、sns-collector/.env が誤って使われてしまう。
+#
+# bash -lc を挟む理由:
+#   cronは最小限のPATHしか持たない。sns-collector/README.md「定期実行(cron)」の
+#   注記の通り、この環境ではsnapサンドボックスの影響でuvが
+#   $HOME/snap/code/.../binのような特殊なパスに配置されており、非ログインシェル
+#   ではPATHが通らない。sns-collector/scripts/cron_run.shと同じ対策が要る。
 #
 # コマンドごとに受け取れるフラグの部分集合が違う(sns-collector/src/sns_collector/cli.py
 # を参照。収集コマンドは --keywords/--data-dir/--db、report は --reports-dir/--data-dir/--db)。
@@ -53,6 +65,6 @@ esac
 
 {
   echo "[$(date -Is)] start: ${COMMAND}"
-  ( cd "${TOPIC_DIR}" && uv run --project "${SNS_COLLECTOR_DIR}" sns-collector "${COMMAND}" "${args[@]}" )
+  bash -lc "uv run --directory '${TOPIC_DIR}' --project '${SNS_COLLECTOR_DIR}' sns-collector '${COMMAND}' ${args[*]@Q}"
   echo "[$(date -Is)] done: ${COMMAND}"
 } >> "${LOG_FILE}" 2>&1

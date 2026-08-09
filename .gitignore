@@ -227,15 +227,12 @@ pnpm-debug.log*
 .yarn/
 .pnp.*
 
-# sns-collector: ローカル収集データ・状態ファイル・生成レポート(非公開)
-sns-collector/data/
-sns-collector/state/
-sns-collector/reports/
-
-# maritime-collector: 同上(ADR-0008。トピックごとに独立したインスタンス)
-maritime-collector/data/
-maritime-collector/state/
-maritime-collector/reports/
+# *-collector/: 各トピックの収集インスタンスのローカル収集データ・状態ファイル・
+# 生成レポート(非公開)。命名規約(ADR-0008)に沿う限り、トピックを追加しても
+# ここを編集する必要がない
+*-collector/data/
+*-collector/state/
+*-collector/reports/
 
 
 # ガードレール抵触の記録(ローカル計測・非公開)

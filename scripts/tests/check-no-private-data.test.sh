@@ -115,6 +115,16 @@ git add README.md
 assert_exit 0 "通常のファイルは通す"
 teardown
 
+# *-collector/data|state|reports 以外は、*-collector/ 配下でも通常ファイルとして通す。
+# ワイルドカード化(*-collector/)がdata/state/reports以外の設定ファイル等まで
+# 巻き込んでいないことの確認
+setup
+mkdir -p maritime-collector/config
+echo 'bluesky:' > maritime-collector/config/keywords.yaml
+git add maritime-collector/config/keywords.yaml
+assert_exit 0 "誤検知しない: *-collector/配下でもdata/state/reports以外は通す"
+teardown
+
 # 小文字UUIDには 4-4-4-4 が必ず含まれる。
 # 境界条件を外すとUUIDを1個含むだけでコミットが止まる
 setup

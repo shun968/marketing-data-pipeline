@@ -27,7 +27,7 @@
 1. **CLIが既にほぼ全コマンドでパスの上書きに対応していた。** `--data-dir`/`--keywords`/`--domains`/`--db`/`--reports-dir`により、新規のPythonコードを書かずに完全に独立したデータツリーへ書き込める。
 2. **コード複製よりも保守コストが低い。** 収集の失敗モード対策（JSONL先書き・エラー隔離）、DuckDBスキーマ、抽出結果の検証ロジック等はトピックに依存しない実装であり、1箇所で直せば全トピックに効く。
 3. **抽出プロンプトだけコード変更が必要だった。** `PROMPTS_DIR`が唯一の上書き不可能な依存だったため、`prompt_path()`/`_read_template()`/`prepare()`へ`prompts_dir`引数を追加した（既定`None`で既存動作を保つ後方互換の変更）。CLIには`--prompts-dir`を追加した。
-4. **`uv run --project <sns-collector>`でcwdを移動せずに依存解決だけ委ねる。** cronラッパー（`maritime-collector/scripts/cron_run.sh`）は`cd`でsns-collector/へ移動せず`--project`を使う。cwdを移動すると、python-dotenvが実行時cwdから`.env`を探すため、将来`maritime-collector/.env`を置いてもsns-collector本体の`.env`が誤って使われてしまう。
+4. **`uv run --directory <topic> --project <sns-collector>`でcwdを明示的にトピック側へ留めたまま、依存解決だけをsns-collector側へ委ねる。** cronラッパー（`maritime-collector/scripts/cron_run.sh`）は`cd`でsns-collector/へ移動しない。cwdを移動すると、python-dotenvが実行時cwdから`.env`を探すため、将来`maritime-collector/.env`を置いてもsns-collector本体の`.env`が誤って使われてしまう。
 
 ## 結果
 
@@ -35,7 +35,7 @@
 
 受け入れた不利益と残る作業:
 
-- **安全側ガード（`check-no-private-data.sh`・`check-doc-duplication.sh`・`.gitignore`）がディレクトリ名をハードコードしている。** トピックを追加するたびに、この3箇所へ新ディレクトリ名を追加する作業が要る。ディレクトリの存在だけでは「収集データ用ディレクトリだ」と機械的に判定できないため、自動検知はできない。追加を忘れた場合でも`check-no-private-data.sh`の`.gitignore`ベースの汎用チェックが最低限のカバーはするが、`.gitignore`自体が誤編集された場合の防御は効かなくなる。
+- **安全側ガードは、トピックディレクトリが`*-collector/`という命名規約に沿う前提でのみ、追加の手動編集なしに機能する。** `check-no-private-data.sh`と`.gitignore`は`*-collector/data|state|reports`というワイルドカードで判定しており、`check-doc-duplication.sh`の`is_prompt()`も特定のディレクトリ名に依存しない正規表現にしてある。**規約から外れた名前（例: `maritime` のように接尾辞を付けない）を選んだ場合は自動検知できない。** ディレクトリの存在だけでは「収集データ用ディレクトリだ」と機械的に判定できないため、命名規約という運用上の合意に依存している点は変わらない。
 - **`dashboard/`は複数トピックに対応していない。** `dashboard/src/dashboard/paths.py`がsns-collector本体の`reports`/`state/.logs`を固定パスで読むため、新トピックのレポートはダッシュボードに表示されない。複数インスタンス対応は別途の機能追加として扱う。
 - **YouTube収集を使う場合、別のGoogle Cloud Project・APIキーが要る。** クオータ分離はコード上の仕組みではなく、キー発行という運用上の対応に委ねている。
 - **キーワード・ドメイン定義は本ADRの対象外。** `maritime-collector/config/`の中身は実データ検証前のドラフトであり、既存3ドメインと同じくPhase 0相当の反復改訂を経る前提である。

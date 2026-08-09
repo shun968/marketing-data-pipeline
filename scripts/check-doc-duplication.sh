@@ -62,7 +62,10 @@ mapfile -d '' -t targets < "${list_file}"
 # ファイルであり、注釈を入れると指示文に混ざって読ませてしまう。
 duplicates="$(
   awk -v min_len="${MIN_LENGTH}" '
-    function is_prompt(f) { return f ~ /(^|\/)[^\/]+\/prompts\/extract-[^\/]*\.md$/ }
+    # ^ のみでアンカーする(リポジトリルート相対のトップレベル1階層＋prompts/のみに限る)。
+    # (^|\/) にすると、ネストした場所に偶然 prompts/extract-*.md があるパスまで
+    # 拾ってしまい、そこと本物のトピックプロンプトの重複を見逃す
+    function is_prompt(f) { return f ~ /^[^\/]+\/prompts\/extract-[^\/]*\.md$/ }
 
     FNR == 1 { in_fence = 0 }
 
