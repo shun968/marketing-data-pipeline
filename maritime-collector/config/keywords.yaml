@@ -3,7 +3,7 @@
 # キーワード設計の3原則・実測の印([実測◎/○/△])の意味は
 # sns-collector/README.md「検索キーワードの編集」を参照する（このファイルには書き写さない）。
 #
-# **このファイルは実データ検証前のドラフトである。** 印の無いキーワードは未検証。
+# **[実測◎/○/△]の付いたキーワードは実データで確認済み。印の無いキーワードは未検証のドラフト。**
 # 実データで確認するには、sns_collector.bluesky.client.search_posts を認証無し・
 # DB非破壊で呼び、ヒット件数・アカウントの多様性を見る
 # （sns-collector/CLAUDE.md「質の確認に本収集を使わない」と同じ手順）。
@@ -21,21 +21,85 @@ bluesky:
   limit_per_keyword: 50 # 1リクエストあたり取得件数(最大100)
   keywords:
     # ── collision_avoidance_ar: AR等を用いた船舶の衝突予知・衝突予防支援 ──
-    - "ARPA 使いにくい" # 未検証。ARPA(自動衝突予防援助装置)への不満を狙う
-    - "ECDIS トラブル" # 未検証。電子海図装置のトラブル
-    - "見張り 負担 航海" # 未検証。見張り業務の負担感
-    - "衝突予防援助装置" # 未検証。正式名称そのもの。ヒット数は少ない見込み
-    - "他船 接近 気づかない" # 未検証。ニアミス・見落としの体験談
-    - "AIS 見えない" # 未検証。AIS(船舶自動識別装置)の死角・見落とし
+    #
+    # **日本語ではなく英語を主体にする。** 2026-08-10、日本語候補14件を
+    # search_posts で検証したがほぼ全滅した（改訂履歴参照）。原因は語の意味の
+    # 衝突ではなく、日本語圏の「船」語彙空間を艦これ（艦隊これくしょん、
+    # 海戦ゲーム）等のフィクション・製品広告が占有していること。英語では
+    # 同じ語がゲームのファンダムと衝突せず、海事業界の実務発信（研究者・
+    # 業界メディア・船員）を素直に拾えた。
+    - "watchkeeping fatigue" # [実測○] 当直・見張り業務の疲労。業界メディア・研究者アカウントがヒット
+    - "seafarer fatigue" # [実測○] 船員疲労。13件・ユニークアカウント10。海事安全団体のアカウントを含む
+    - "bridge watch fatigue" # [実測○] 船橋当直の疲労。業界メディアの技術解説記事がヒット
+    - "collision avoidance ship" # [実測○] 衝突回避。自律航行の研究論文紹介アカウントがヒット（研究・供給側の情報が中心、需要シグナルは薄い可能性）
+    - "radar clutter ship" # [実測△] レーダーのクラッター(不要反射)。件数少なめだが的確
+    - "ARPA plotting" # [実測○] 2件・2アカウントとも的確(現役/元船員による解説投稿)。裸の"ARPA"は米国のコロナ対策資金法(American Rescue Plan Act)・DARPA・伊語ARPA(環境保護庁)・西語/土語arpa(ハープ/大麦)等と広範囲に衝突するため使わない
 
 hackernews:
   tags: "(story,comment)" # Algoliaのタグフィルタ。story=投稿本文、comment=返信
   hits_per_page: 50
   keywords:
     # ── collision_avoidance_ar ──────────────────────────────────────────
-    - "collision avoidance ship" # 未検証
-    - "ARPA radar" # 未検証
-    - "AIS vessel tracking" # 未検証
+    #
+    # 2026-08-10の検証で、一般的すぎる語("collision avoidance ship" 等)は
+    # Tesla/EV等の無関係なテック記事に埋もれることが分かった。海事分野の
+    # 専門用語まで絞ると、自律航行・衝突回避の技術議論を拾えた。
+    #
+    # 初期候補("collision avoidance ship" / "ARPA radar" / "AIS vessel
+    # tracking")は日本語→英語移行時に全て置き換えた。"collision avoidance
+    # ship"はTesla/EV記事への埋没を確認済み(上記)。"ARPA radar" /
+    # "AIS vessel tracking"は個別に実測しておらず、より特異度の高い候補
+    # ("ARPA radar plotting" / "autonomous ship navigation")を優先したため
+    # 候補から外した(未実測のまま削除。再検証する場合はこの2語から)。
+    #
+    # **検証は sns_collector.hackernews.client.search_items を使うこと。**
+    # Algolia標準の /search (関連度順) と、収集が実際に使う /search_by_date
+    # (新着順) は結果が別物。"COLREGS" は /search では的確だったが
+    # /search_by_date では無関係な記事しか返らず、実収集後に発覚した
+    # （50件中0件が本文にCOLREGSを含んでいなかった）。検証手順を修正した
+    # 上で候補から外した。
+    - "ARPA radar plotting" # [実測○] UAIS/ARPAの信頼性に関する議論がヒット(search_by_dateで確認)
+    - "autonomous ship navigation" # [実測○] 自律航行船。search_by_dateで20件中20件が船舶関連語を含む
 
 # 改訂履歴
+# 2026-08-10 CPA/TCPA/AISの組み合わせ候補を検証したが不採用。
+#   "CPA vessel"はチッタゴン港湾局(Chittagong Port Authority)のCPAと衝突。
+#   "TCPA vessel"/"TCPA collision"はヒット0件。
+#   "CPA TCPA"はGoogle/Microsoft広告の入札戦略「Target CPA(tCPA)」・
+#   会計士(#CPA)ハッシュタグと衝突し、的中した数件もbartgonnissen.bsky.social
+#   1アカウントの教育スレッド(ARPA plottingで既に一部収集済み)の別部分だった。
+#   "CPA nm ship"は自動船舶追跡bot(aisfriesland.bsky.social、VesselAlert)の
+#   機械生成投稿で15件中15件が同一bot。"AIS ARPA fused"はヒット0件。
+#   hackernewsは"CPA TCPA"/"closest point of approach"とも search_by_date で
+#   無関係な記事のみ(CCPA=カリフォルニア州プライバシー法等)。
+#   結論: 新規の需要シグナルは見つからず、既存キーワードの重複か、
+#   広告/会計/bot系のノイズにしかならないため追加を見送る。
+# 2026-08-10 裸の"ARPA"を検証したが不採用。bluesky/hackernewsとも他言語・他分野の
+#   語義(米国のコロナ対策資金法=American Rescue Plan Act が英語圏では支配的な意味、
+#   DARPA、伊語ARPA=環境保護庁、西語/土語arpa=ハープ/大麦、ARPA-H、暗号資産ARPA等)
+#   に広範囲に埋もれた。アンカー語を付けても大半は埋もれたが、"ARPA plotting"のみ
+#   2件とも的確だったためbluesky側へ追加した。
+# 2026-08-10 hackernewsの検証手法を修正。Algolia標準の /search (関連度順)で
+#   検証した"COLREGS"を実収集したところ、50件中0件が本文にCOLREGSを含まない
+#   無関係な記事だった。原因は検証に使ったエンドポイントと実収集
+#   (search_items が使う /search_by_date、新着順)が別物だったこと。
+#   以後の検証は search_items を直接使う。"COLREGS"は候補から外した。
+# 2026-08-10 v2改訂。日本語キーワードを全廃し英語主体へ切り替えた（search_posts
+#   で事前検証）。日本語候補14件（前回の6件+追加検証8件）は艦これ(艦隊これくしょん)
+#   のファンダム・車載レーダー探知機の広告・一般小説/アニメ語彙に埋もれ、
+#   海事従事者の発話をほぼ拾えなかった（「見張り員」20件は全て艦これ、
+#   「レーダー 誤警報」はユピテル製品広告等）。英語では同じ語がゲームの
+#   ファンダムと衝突せず、業界メディア・研究者・海事安全団体のアカウントが
+#   ヒットした（watchkeeping fatigue / seafarer fatigue 等）。海事は国際的な
+#   業界で実務言語が英語という構造が、AI/3Dプリンタ(日本語圏中心)と異なる。
+#   hackernewsは一般語("collision avoidance ship"単体)がTesla/EV記事に
+#   埋もれたため、COLREGS等の専門用語へ寄せた。
+# 2026-08-10 初回実収集で評価（reports/report-2016-08-11_2026-08-09.md「初回収集の所見」参照。
+#   ファイル名の2016年は誤記ではなく、収集開始間もない全期間のデータを1本の
+#   レポートに含めるため --since に約10年分の日数を指定した結果）。
+#   全キーワードで痛み表現の比率が0〜2%（fabrication 44% / edge_ai 12%と比べ低い）。
+#   bluesky「AIS 見えない」49件はヒットしたが、大半は船舶追跡データを趣味で観察する
+#   層の投稿で、衝突予知の負担・既存装備への不満という仮説の対象とは別コミュニティ。
+#   hackernewsの3語はTesla/EV/半導体等の無関係なテック記事が大半で機能していない。
+#   bluesky側の他5語はヒット0件。**全キーワードの改訂が必要。cronには登録しない。**
 # 2026-08-10 初版作成（ADR-0008）。実データ未検証のドラフト。

@@ -4,7 +4,9 @@
 
 `sns-collector/` と同じ収集→抽出→埋め込み→グラフ→レポートのパイプラインを、設定・データベース・収集クオータを完全に分離した状態で再利用する（背景は `docs/adr/0008-reuse-sns-collector-across-topics.md`）。このディレクトリ自体はPythonコードを持たず、`sns-collector/` のCLIを別の設定ファイル・別のDBへ向けて呼び出すだけの薄い構成になっている。
 
-**現状（2026-08-10時点）: キーワード・ドメインは未検証のドラフトである。** cronへは未登録。以下の検証手順を済ませてから定期収集を有効にすること。
+**現状（2026-08-10時点）: 初回収集を2ラウンド実施した。cronへは未登録。**
+
+1回目（日本語キーワード中心）はほぼ全滅。日本語圏の「船」語彙空間を艦これ（艦隊これくしょん）等のフィクションが占有しており、海事従事者の発話をほぼ拾えなかった。2回目に英語キーワードへ切り替え、Bluesky/Hacker Newsとも業界メディア・研究者アカウントの投稿を拾えるようになった。ただし現状は供給側・研究寄りの情報が中心で、`config/domains.yaml`の仮説（現場の一人称の不満）を直接裏付ける投稿はまだ確認できていない。詳細は`config/keywords.yaml`の改訂履歴を参照。**継続して収集し、構造化抽出で洞察の有無を確認してから判断する段階。**
 
 ## セットアップ
 
@@ -17,19 +19,31 @@ uv run --project ../sns-collector sns-collector db init --data-dir data --db dat
 
 ## キーワード候補の検証（cron登録の前に必ず行う）
 
-`config/keywords.yaml` の候補はまだ実データで確認していない。`sns-collector/CLAUDE.md`「質の確認に本収集を使わない」と同じ手順で、DBを汚さずに検証する。
+`config/keywords.yaml` の `[実測◎/○/△]` の付いた語は実データで確認済み。印の無い新規候補を追加するときは、`sns-collector/CLAUDE.md`「質の確認に本収集を使わない」と同じ手順で、DBを汚さずに検証する。
 
 ```sh
 cd sns-collector
 uv run python -c "
 from sns_collector.bluesky.client import search_posts
-hits = search_posts('ARPA 使いにくい', sort='latest', limit=50)
+hits = search_posts('watchkeeping fatigue', sort='latest', limit=50)
 for h in hits[:10]:
     print(h.get('author', {}).get('handle'), '|', h.get('record', {}).get('text', '')[:80])
 "
 ```
 
 ヒット件数・投稿者アカウントの多様性・本文の質を見て、`sns-collector/README.md`「検索キーワードの編集」の3原則（アンカー語・英字への日本語併記・英語は件数でなくアカウント多様性で判定）に照らして判断する。確認できたキーワードには `config/keywords.yaml` に `[実測◎/○/△]` を付け、改訂履歴に根拠を残す。
+
+**Hacker Newsは `search_items`（実収集と同じ`search_by_date`エンドポイント）で検証すること。** Algolia標準の`/search`（関連度順）は実収集の`/search_by_date`（新着順）と結果が別物であり、`/search`で的確に見えたキーワードが実収集では無関係な記事しか返さないことがある（2026-08-10、"COLREGS"で実際に発生。改訂履歴参照）。
+
+```sh
+cd sns-collector
+uv run python -c "
+from sns_collector.hackernews.client import search_items
+hits = search_items('ARPA radar plotting', tags='(story,comment)', hits_per_page=20)
+for h in hits[:10]:
+    print(h.get('author'), '|', (h.get('comment_text') or h.get('story_text') or h.get('title') or '')[:100])
+"
+```
 
 ## 手動実行
 
@@ -81,5 +95,5 @@ uv run --project ../sns-collector sns-collector report --data-dir data --db data
 
 ## 対象外にしていること
 
-- **YouTube。** 使うかどうか未定。使う場合、sns-collector本体のクオータと分けるため別のGoogle Cloud Projectと `YOUTUBE_API_KEY` が要る
+- **YouTube。** 2026-08-10、sns-collector本体のAPIキーで少数回に限り検証した（本収集は未設定）。**この検証はsns-collector本体のクオータを消費しており、収集クオータの完全分離という本インスタンスの前提から外れる一時的な例外である。** 継続的な検証・本収集を行う場合は、下記のとおり別のGoogle Cloud Projectと`YOUTUBE_API_KEY`を用意すること。「ARPA radar plotting」「seafarer fatigue」「watchkeeping fatigue」の3語ともタイトルの的中率は高かったが、内容は海事学校の授業・資格試験対策・業界安全機関のウェビナー等、100%供給側だった（docs/design.md §4.3で元のAI/3Dプリンタのトピックについて指摘されている構造的限界と同じ）。個人の困りごと・要望は説明文にも見られなかったため、対象に加える価値は無いと判断した。使う場合は別のGoogle Cloud Projectと `YOUTUBE_API_KEY` が要る
 - **ダッシュボード。** `dashboard/` は現状sns-collector本体のレポート・ログのみを固定パスで読む。maritime-collectorのレポートは表示されない
