@@ -3,6 +3,8 @@ from __future__ import annotations
 import time
 from collections.abc import Callable
 
+import requests
+
 from ..common.http import post_json
 
 TOKEN_URL = "https://www.reddit.com/api/v1/access_token"
@@ -28,7 +30,19 @@ def fetch_token(client_id: str, client_secret: str, user_agent: str) -> tuple[st
         auth=(client_id, client_secret),
         label="reddit:token",
     )
-    return str(payload["access_token"]), float(payload.get("expires_in", DEFAULT_EXPIRES_IN))
+    # RedditはOAuthの失敗(未登録アプリ・資格情報の誤り等)をHTTP 200 + エラー本文
+    # ({"error": "invalid_grant"}等)で返すことがある。ここで拾わずKeyErrorを漏らすと、
+    # TokenProvider.token()が約束する「requests.RequestExceptionだけが伝播する」が
+    # 破れ、呼び出し側(search.py)のキーワード単位隔離をすり抜けてrun全体が落ちる
+    try:
+        return str(payload["access_token"]), float(payload.get("expires_in", DEFAULT_EXPIRES_IN))
+    except KeyError as e:
+        # 本文をそのまま出さない。資格情報そのものは含まれないはずだが、
+        # 予期しないフィールドを不用意にログへ出す経路を増やさない
+        reason = payload.get("error", "不明")
+        raise requests.HTTPError(
+            f"Redditのトークン応答にaccess_tokenが無い(error: {reason})"
+        ) from e
 
 
 class TokenProvider:

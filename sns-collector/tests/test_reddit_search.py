@@ -174,3 +174,22 @@ def test_トークンはキーワードごとに取り直さない(tmp_path: Pat
         reddit_search.run(_config(["語1", "語2", "語3"]), data_dir=data_dir, db_path=db_path)
 
     mock_provider_class.assert_called_once_with("id", "secret", "test:app:1.0 (by /u/test)")
+
+
+def test_トークン応答が不正でも生のKeyErrorでrunが落ちない(tmp_path: Path):
+    """RedditがOAuth失敗をHTTP 200 + エラー本文で返すケース(実TokenProviderを使う)。
+
+    fetch_token内部のKeyErrorがrequests.RequestExceptionへ変換されないと、
+    冒頭のトークン先取りのtry/exceptをすり抜けてrunが生のトレースバックで落ちる。
+    """
+    data_dir = tmp_path / "data"
+    db_path = tmp_path / "data" / "analysis.duckdb"
+
+    with (
+        patch("sns_collector.reddit.auth.post_json", return_value={"error": "invalid_grant"}),
+        patch("sns_collector.reddit.search.search_posts") as mock_search,
+    ):
+        reddit_search.run(_config(["キーワード"]), data_dir=data_dir, db_path=db_path)
+
+    mock_search.assert_not_called()
+    assert list(data_dir.glob("*.jsonl")) == []

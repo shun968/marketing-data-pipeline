@@ -44,4 +44,7 @@ def search_issues(
         interval=INTERVAL_WITH_TOKEN if token else INTERVAL_WITHOUT_TOKEN,
         label=f"github:{query}",
     )
-    return payload.get("items", [])
+    # "items"キー自体がnullで返る場合があるため`or []`で吸収する。`.get("items", [])`
+    # だとキーが存在しnullのときに既定値が使われず、呼び出し側のfor文がTypeErrorで
+    # 落ちる(search.pyのrequests.RequestException隔離をすり抜ける)
+    return payload.get("items") or []

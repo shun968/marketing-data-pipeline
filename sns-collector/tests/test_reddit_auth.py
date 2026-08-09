@@ -83,13 +83,31 @@ def test_取得失敗はrequests例外としてそのまま送出される():
         provider.token()
 
 
-def test_access_tokenが無いレスポンスはKeyErrorになる(monkeypatch):
+def test_access_tokenが無いレスポンスはRequestExceptionになる(monkeypatch):
+    """RedditはOAuth失敗をHTTP 200 + エラー本文で返すことがある。
+
+    KeyErrorを漏らすとTokenProvider.token()の「RequestExceptionだけが伝播する」
+    という約束が破れ、search.py側のキーワード単位隔離をすり抜けてrunが落ちる。
+    """
+
     def fake_post_json(*_args, **_kwargs):
-        return {"token_type": "bearer"}
+        return {"error": "invalid_grant"}
 
     monkeypatch.setattr("sns_collector.reddit.auth.post_json", fake_post_json)
-    with pytest.raises(KeyError):
+    with pytest.raises(requests.RequestException):
         fetch_token("id", "secret", "test-agent")
+
+
+def test_access_tokenが無いレスポンスはTokenProvider経由でもRequestExceptionのまま(monkeypatch):
+    """fetch_tokenだけでなくTokenProvider.token()を通しても契約が保たれることを確認する。"""
+
+    def fake_post_json(*_args, **_kwargs):
+        return {}
+
+    monkeypatch.setattr("sns_collector.reddit.auth.post_json", fake_post_json)
+    provider = TokenProvider("id", "secret", "test-agent")
+    with pytest.raises(requests.RequestException):
+        provider.token()
 
 
 def test_User_Agentヘッダを付けてトークンを取りに行く(monkeypatch):

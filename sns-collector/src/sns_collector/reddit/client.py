@@ -32,5 +32,9 @@ def search_posts(
         interval=INTERVAL_SECONDS,
         label=f"reddit:{query}",
     )
-    children = payload.get("data", {}).get("children", [])
+    # "data"キー自体がnullで返る場合があるため、`.get(key, {})`の既定値だけでは
+    # 足りない(キーが存在しnullなら既定値は使われず、後続の.get()呼び出しで
+    # AttributeErrorになる)。`or {}`でnull/欠損の両方を吸収する
+    data = payload.get("data") or {}
+    children = data.get("children") or []
     return [c.get("data", {}) for c in children if isinstance(c, dict)]
