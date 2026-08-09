@@ -300,6 +300,46 @@ conn.execute('UPDATE insights SET embedding = NULL, embedding_model = NULL')
 uv run sns-collector embed --model <新しいモデル名> --limit 100000
 ```
 
+### 関係グラフ
+
+アカウント・キーワード・競合製品・ドメイン・投稿の関係を `edges` へ導出する（F-12, F-13）。専用のグラフDBは持たず、DuckDBの汎用エッジテーブルとして表現する（ADR-0001）。
+
+```sh
+uv run sns-collector graph rebuild                        # 4種すべてを再構築
+uv run sns-collector graph rebuild --edge-type cooccurs --edge-type belongs_to
+uv run sns-collector graph rebuild --similarity-threshold 0.9 --top-k 5
+```
+
+| edge_type | src → dst | weight |
+|---|---|---|
+| `mentions` | `author` → `product` | その競合製品に言及した投稿数 |
+| `cooccurs` | `keyword` → `keyword` | 両方にヒットした投稿数（片方向のみ。`src < dst`） |
+| `belongs_to` | `keyword` → `domain` | そのキーワードの投稿がそのドメインへ分類された件数 |
+| `similar_to` | `post` → `post` | `insights.embedding` のコサイン類似度（投稿ごとに上位 `--top-k` 件で打ち切る） |
+
+**毎回全削除してから入れ直す。** `keywords.yaml` から外したキーワードの共起や、再抽出で消えた競合言及が残り続けないよう、同じ入力からは常に同じ集合になることを優先している。再実行しても件数・内容は変わらない。
+
+**`similar_to` は埋め込み済み件数の二乗に比例する。** 実測で2万件が目安（約5分）を超えると `graph rebuild` は実行前に拒否する。超えた場合は `--edge-type` で `similar_to` を外して他の3種だけ再構築すること。埋め込みモデルが混在している場合も同様に拒否する（`embed` の項を参照）。
+
+クエリ例:
+
+```sql
+-- キーワード共起の上位ペア
+SELECT src_id, dst_id, weight
+FROM edges WHERE edge_type = 'cooccurs'
+ORDER BY weight DESC LIMIT 20;
+
+-- ある競合製品への言及元アカウント一覧
+SELECT src_id AS author_id, weight AS mention_count
+FROM edges WHERE edge_type = 'mentions' AND dst_id = 'Roboflow'
+ORDER BY weight DESC;
+
+-- ある投稿に似た投稿（近傍探索）
+SELECT dst_id AS similar_post_id, weight AS similarity
+FROM edges WHERE edge_type = 'similar_to' AND src_id = 'bluesky:at://...'
+ORDER BY weight DESC;
+```
+
 ### バックアップ
 
 DBは単一ファイルなので、コピーで完結する（N-07）。
