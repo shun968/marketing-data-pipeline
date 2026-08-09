@@ -112,6 +112,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         choices=list(COLLECTORS),
         help="抽出対象のプラットフォーム(既定: bluesky)。複数指定可",
     )
+    ex_prepare.add_argument(
+        "--prompts-dir",
+        type=Path,
+        default=None,
+        help="抽出プロンプトの探索先(既定: sns-collector/prompts)",
+    )
 
     ex_load = ex_sub.add_parser("load", help="抽出結果を検証してDBへ入れる")
     ex_load.add_argument("batch_id")
@@ -250,6 +256,7 @@ def _run_extract(args: argparse.Namespace) -> int:
                 domain_ids=domain_ids,
                 platforms=tuple(args.platform) if args.platform else DEFAULT_PLATFORMS,
                 reextract=args.reextract,
+                prompts_dir=args.prompts_dir,
             )
             if result is None:
                 print("抽出待ちの投稿はありません")
