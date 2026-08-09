@@ -1,6 +1,6 @@
 # 分析基盤 実装計画
 
-最終更新: 2026-08-08
+最終更新: 2026-08-09
 
 関連: [architecture.md](./architecture.md) / [requirements.md](./requirements.md) / [design.md](./design.md) / [adr/](./adr/)
 
