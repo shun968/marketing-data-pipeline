@@ -15,7 +15,14 @@ from sns_collector.extract import (
     status,
     validate,
 )
+from sns_collector.extract.prepare import DEFAULT_PLATFORMS
 from tests.conftest import BLUESKY_RECORD, YOUTUBE_RECORD
+
+
+def test_抽出の既定対象にgithubとredditを含めない():
+    """実測前に既定へ入れない(ADR-0009)。歩留まりを測ってから判断する。"""
+    assert DEFAULT_PLATFORMS == ("bluesky", "hackernews")
+
 
 DOMAINS = frozenset({"ai_accuracy", "edge_ai", "fabrication", "other"})
 

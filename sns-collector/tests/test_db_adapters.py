@@ -4,8 +4,21 @@ import json
 
 import pytest
 
-from sns_collector.db.adapters import AdapterError, from_bluesky, from_hackernews, from_youtube
-from tests.conftest import BLUESKY_RECORD, HACKERNEWS_RECORD, YOUTUBE_RECORD
+from sns_collector.db.adapters import (
+    AdapterError,
+    from_bluesky,
+    from_github,
+    from_hackernews,
+    from_reddit,
+    from_youtube,
+)
+from tests.conftest import (
+    BLUESKY_RECORD,
+    GITHUB_RECORD,
+    HACKERNEWS_RECORD,
+    REDDIT_RECORD,
+    YOUTUBE_RECORD,
+)
 
 
 def test_blueskyのidはプラットフォーム接頭辞を持つ():
@@ -73,6 +86,56 @@ def test_hackernewsのmetricsにitem_typeとstory_idを含める():
     }
 
 
+def test_githubのidはプラットフォーム接頭辞を持つ():
+    row = from_github(GITHUB_RECORD)
+    assert row.id == "github:2345678901"
+    assert row.platform == "github"
+    assert row.native_id == GITHUB_RECORD["issue_id"]
+
+
+def test_githubはmetricsにlabelsとstateを持つ():
+    row = from_github(GITHUB_RECORD)
+    metrics = json.loads(row.metrics)
+    assert metrics["labels"] == ["bug", "help wanted"]
+    assert metrics["state"] == "open"
+    assert metrics["repo_full_name"] == "owner/repo"
+
+
+def test_githubのauthor_idは数値IDでhandleはlogin():
+    """loginは改名で変わる。数値IDは変わらない識別子として分ける。"""
+    row = from_github(GITHUB_RECORD)
+    assert row.author_id == "9999"
+    assert row.author_handle == "someone"
+    assert row.lang is None, "検索APIは言語を返さない"
+
+
+def test_redditのidはfullnameを含む():
+    row = from_reddit(REDDIT_RECORD)
+    assert row.id == "reddit:t3_1abcdef"
+    assert row.platform == "reddit"
+    assert row.native_id == REDDIT_RECORD["post_id"]
+
+
+def test_redditのmetricsにscoreとsubredditを持つ():
+    row = from_reddit(REDDIT_RECORD)
+    metrics = json.loads(row.metrics)
+    assert metrics["score"] == 12
+    assert metrics["subreddit"] == "maritime"
+    assert metrics["upvote_ratio"] == 0.9
+
+
+def test_redditのauthor_idはfullnameでauthor_handleは表示名():
+    row = from_reddit(REDDIT_RECORD)
+    assert row.author_id == "t2_1234"
+    assert row.author_handle == "someone"
+
+
+def test_redditのposted_atはmodelsが変換済みのISO8601から読める():
+    row = from_reddit(REDDIT_RECORD)
+    assert row.posted_at is not None
+    assert row.posted_at.isoformat() == "2025-08-08T00:33:37"
+
+
 def test_必須フィールドが無ければ弾く():
     broken = {k: v for k, v in BLUESKY_RECORD.items() if k != "post_id"}
     with pytest.raises(AdapterError):
@@ -83,6 +146,12 @@ def test_必須フィールドが無ければ弾く():
 
     with pytest.raises(AdapterError):
         from_hackernews({**HACKERNEWS_RECORD, "item_id": ""})
+
+    with pytest.raises(AdapterError):
+        from_github({**GITHUB_RECORD, "issue_id": ""})
+
+    with pytest.raises(AdapterError):
+        from_reddit({**REDDIT_RECORD, "post_id": ""})
 
 
 def test_日時が壊れていても行は捨てない():

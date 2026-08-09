@@ -75,3 +75,61 @@ def test_respects_retry_after_header():
 
     # 1回目: ペーシングのinterval / 2回目: Retry-After(30秒) がバックオフ既定値を上回る
     assert [c.args[0] for c in mock_sleep.call_args_list] == [1.0, 30.0]
+
+
+def test_headersをrequests_getへ転送する():
+    with (
+        patch("sns_collector.common.http.time.sleep"),
+        patch("sns_collector.common.http.requests.get", return_value=_response(200)) as mock_get,
+    ):
+        http.get_json("https://example.test", {}, headers={"Authorization": "Bearer x"})
+    assert mock_get.call_args.kwargs["headers"] == {"Authorization": "Bearer x"}
+
+
+def test_headers未指定でも既存の呼び出し形が壊れない():
+    with (
+        patch("sns_collector.common.http.time.sleep"),
+        patch("sns_collector.common.http.requests.get", return_value=_response(200)) as mock_get,
+    ):
+        http.get_json("https://example.test", {})
+    assert mock_get.call_args.kwargs["headers"] is None
+
+
+def test_post_jsonはdataとauthとheadersを渡す():
+    with (
+        patch("sns_collector.common.http.time.sleep"),
+        patch(
+            "sns_collector.common.http.requests.post", return_value=_response(200, {"ok": True})
+        ) as mock_post,
+    ):
+        result = http.post_json(
+            "https://example.test/token",
+            data={"grant_type": "client_credentials"},
+            headers={"User-Agent": "test-agent"},
+            auth=("id", "secret"),
+        )
+    assert result == {"ok": True}
+    assert mock_post.call_args.kwargs["data"] == {"grant_type": "client_credentials"}
+    assert mock_post.call_args.kwargs["headers"] == {"User-Agent": "test-agent"}
+    assert mock_post.call_args.kwargs["auth"] == ("id", "secret")
+
+
+def test_post_jsonも429で再試行する():
+    responses = [_response(429), _response(200, {"access_token": "t"})]
+    with (
+        patch("sns_collector.common.http.time.sleep"),
+        patch("sns_collector.common.http.requests.post", side_effect=responses) as mock_post,
+    ):
+        assert http.post_json("https://example.test/token") == {"access_token": "t"}
+    assert mock_post.call_count == 2
+
+
+def test_post_jsonは再試行対象外のステータスで即座に送出する():
+    """資格情報の誤り(401)が延々リトライされないことの回帰。"""
+    with (
+        patch("sns_collector.common.http.time.sleep"),
+        patch("sns_collector.common.http.requests.post", return_value=_response(401)) as mock_post,
+        pytest.raises(requests.HTTPError),
+    ):
+        http.post_json("https://example.test/token")
+    assert mock_post.call_count == 1
