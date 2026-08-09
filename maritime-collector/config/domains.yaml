@@ -27,8 +27,11 @@ domains:
     sns_collection: true
     expected_signal: null
     note: |
-      初期仮説。実データ検証前（Phase 0 未実施）。config/keywords.yaml の
-      候補キーワードもまだ実データで確認していない。
+      初期仮説。2026-08-10までに収集2ラウンド・構造化抽出を実施した
+      （config/keywords.yaml改訂履歴参照）。見張り・疲労・既存装備への
+      不満を裏付ける投稿は複数確認できたが、大半は供給側・研究寄りの
+      情報で、`monetizable=true`と判定できた投稿はまだ無い。仮説は
+      部分的に支持されている段階で、継続収集による確認が要る。
 
   - id: other
     label: 該当なし・分類不能

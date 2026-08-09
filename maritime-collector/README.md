@@ -19,13 +19,13 @@ uv run --project ../sns-collector sns-collector db init --data-dir data --db dat
 
 ## キーワード候補の検証（cron登録の前に必ず行う）
 
-`config/keywords.yaml` の候補はまだ実データで確認していない。`sns-collector/CLAUDE.md`「質の確認に本収集を使わない」と同じ手順で、DBを汚さずに検証する。
+`config/keywords.yaml` の `[実測◎/○/△]` の付いた語は実データで確認済み。印の無い新規候補を追加するときは、`sns-collector/CLAUDE.md`「質の確認に本収集を使わない」と同じ手順で、DBを汚さずに検証する。
 
 ```sh
 cd sns-collector
 uv run python -c "
 from sns_collector.bluesky.client import search_posts
-hits = search_posts('ARPA 使いにくい', sort='latest', limit=50)
+hits = search_posts('watchkeeping fatigue', sort='latest', limit=50)
 for h in hits[:10]:
     print(h.get('author', {}).get('handle'), '|', h.get('record', {}).get('text', '')[:80])
 "
@@ -95,5 +95,5 @@ uv run --project ../sns-collector sns-collector report --data-dir data --db data
 
 ## 対象外にしていること
 
-- **YouTube。** 2026-08-10、sns-collector本体のAPIキーで少数回に限り検証した（本収集は未設定）。「ARPA radar plotting」「seafarer fatigue」「watchkeeping fatigue」の3語ともタイトルの的中率は高かったが、内容は海事学校の授業・資格試験対策・業界安全機関のウェビナー等、100%供給側だった（docs/design.md §4.3で元のAI/3Dプリンタのトピックについて指摘されている構造的限界と同じ）。個人の困りごと・要望は説明文にも見られなかったため、対象に加える価値は無いと判断した。使う場合は別のGoogle Cloud Projectと `YOUTUBE_API_KEY` が要る
+- **YouTube。** 2026-08-10、sns-collector本体のAPIキーで少数回に限り検証した（本収集は未設定）。**この検証はsns-collector本体のクオータを消費しており、収集クオータの完全分離という本インスタンスの前提から外れる一時的な例外である。** 継続的な検証・本収集を行う場合は、下記のとおり別のGoogle Cloud Projectと`YOUTUBE_API_KEY`を用意すること。「ARPA radar plotting」「seafarer fatigue」「watchkeeping fatigue」の3語ともタイトルの的中率は高かったが、内容は海事学校の授業・資格試験対策・業界安全機関のウェビナー等、100%供給側だった（docs/design.md §4.3で元のAI/3Dプリンタのトピックについて指摘されている構造的限界と同じ）。個人の困りごと・要望は説明文にも見られなかったため、対象に加える価値は無いと判断した。使う場合は別のGoogle Cloud Projectと `YOUTUBE_API_KEY` が要る
 - **ダッシュボード。** `dashboard/` は現状sns-collector本体のレポート・ログのみを固定パスで読む。maritime-collectorのレポートは表示されない

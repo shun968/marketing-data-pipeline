@@ -3,7 +3,7 @@
 # キーワード設計の3原則・実測の印([実測◎/○/△])の意味は
 # sns-collector/README.md「検索キーワードの編集」を参照する（このファイルには書き写さない）。
 #
-# **このファイルは実データ検証前のドラフトである。** 印の無いキーワードは未検証。
+# **[実測◎/○/△]の付いたキーワードは実データで確認済み。印の無いキーワードは未検証のドラフト。**
 # 実データで確認するには、sns_collector.bluesky.client.search_posts を認証無し・
 # DB非破壊で呼び、ヒット件数・アカウントの多様性を見る
 # （sns-collector/CLAUDE.md「質の確認に本収集を使わない」と同じ手順）。
@@ -44,6 +44,13 @@ hackernews:
     # 2026-08-10の検証で、一般的すぎる語("collision avoidance ship" 等)は
     # Tesla/EV等の無関係なテック記事に埋もれることが分かった。海事分野の
     # 専門用語まで絞ると、自律航行・衝突回避の技術議論を拾えた。
+    #
+    # 初期候補("collision avoidance ship" / "ARPA radar" / "AIS vessel
+    # tracking")は日本語→英語移行時に全て置き換えた。"collision avoidance
+    # ship"はTesla/EV記事への埋没を確認済み(上記)。"ARPA radar" /
+    # "AIS vessel tracking"は個別に実測しておらず、より特異度の高い候補
+    # ("ARPA radar plotting" / "autonomous ship navigation")を優先したため
+    # 候補から外した(未実測のまま削除。再検証する場合はこの2語から)。
     #
     # **検証は sns_collector.hackernews.client.search_items を使うこと。**
     # Algolia標準の /search (関連度順) と、収集が実際に使う /search_by_date
@@ -87,7 +94,9 @@ hackernews:
 #   業界で実務言語が英語という構造が、AI/3Dプリンタ(日本語圏中心)と異なる。
 #   hackernewsは一般語("collision avoidance ship"単体)がTesla/EV記事に
 #   埋もれたため、COLREGS等の専門用語へ寄せた。
-# 2026-08-10 初回実収集で評価（reports/report-2016-08-11_2026-08-09.md「初回収集の所見」参照）。
+# 2026-08-10 初回実収集で評価（reports/report-2016-08-11_2026-08-09.md「初回収集の所見」参照。
+#   ファイル名の2016年は誤記ではなく、収集開始間もない全期間のデータを1本の
+#   レポートに含めるため --since に約10年分の日数を指定した結果）。
 #   全キーワードで痛み表現の比率が0〜2%（fabrication 44% / edge_ai 12%と比べ低い）。
 #   bluesky「AIS 見えない」49件はヒットしたが、大半は船舶追跡データを趣味で観察する
 #   層の投稿で、衝突予知の負担・既存装備への不満という仮説の対象とは別コミュニティ。
