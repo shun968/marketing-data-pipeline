@@ -9,6 +9,7 @@ import duckdb
 
 from . import embed as embed_mod
 from . import extract as extract_mod
+from . import graph as graph_mod
 from . import search as search_mod
 from .bluesky import search as bluesky_search
 from .common.config import (
@@ -136,6 +137,31 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     em.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
     em.add_argument("--db", type=Path, default=None)
 
+    gr = sub.add_parser("graph", help="関係グラフの操作")
+    gr_sub = gr.add_subparsers(dest="graph_command", required=True)
+
+    gr_rebuild = gr_sub.add_parser("rebuild", help="edgesを導出し直す(何度実行しても同じ結果)")
+    gr_rebuild.add_argument(
+        "--similarity-threshold",
+        type=float,
+        default=graph_mod.DEFAULT_SIMILARITY_THRESHOLD,
+        help="similar_toとみなすコサイン類似度の下限",
+    )
+    gr_rebuild.add_argument(
+        "--top-k",
+        type=int,
+        default=graph_mod.DEFAULT_TOP_K,
+        help="1投稿から張るsimilar_toの上限",
+    )
+    gr_rebuild.add_argument(
+        "--edge-type",
+        action="append",
+        choices=list(graph_mod.EDGE_TYPES),
+        help="再構築する種別(既定: すべて)。複数指定可",
+    )
+    gr_rebuild.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
+    gr_rebuild.add_argument("--db", type=Path, default=None)
+
     se = sub.add_parser("search", help="自然言語クエリで意味検索する")
     se.add_argument("query")
     se.add_argument("--type", dest="insight_type", default=None, help="insight_typeで絞り込む")
@@ -262,6 +288,21 @@ def _run_embed(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_graph(args: argparse.Namespace) -> int:
+    with connect(_db_path(args)) as conn:
+        result = graph_mod.rebuild(
+            conn,
+            similarity_threshold=args.similarity_threshold,
+            top_k=args.top_k,
+            edge_types=tuple(args.edge_type) if args.edge_type else graph_mod.EDGE_TYPES,
+        )
+
+    print(f"edges: {result.total}件")
+    for edge_type, count in result.counts.items():
+        print(f"  {edge_type:12s} {count:6d}件")
+    return 0
+
+
 def _run_search(args: argparse.Namespace) -> int:
     with connect(_db_path(args)) as conn:
         hits = search_mod.search(
@@ -304,6 +345,9 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.command == "embed":
             return _run_embed(args)
+
+        if args.command == "graph":
+            return _run_graph(args)
 
         if args.command == "search":
             return _run_search(args)
