@@ -141,6 +141,70 @@ if in_index lefthook.yml; then
   fi
 fi
 
+# 6. プロジェクト設定のガードレールが弱められていないか
+#
+#    .claude/settings.json の編集は Claude Code 自身の ask ルールで承認を要するが、
+#    承認は反射的に通り得る(CLAUDE.md「機械検査と承認フローの使い分け」)。
+#    文字列で判定できる下限だけを、コミット時にもう1層で確かめる。
+#
+#    ここに列挙するのは「欠けたら隔離設計が崩れる」最小集合であり、
+#    settings.json の転記ではない。層の全体像は docs/isolation.md を参照。
+#    settings.json がindexに無いリポジトリでは対象0件として通す
+SETTINGS=".claude/settings.json"
+if in_index "${SETTINGS}"; then
+  if ! command -v jq > /dev/null 2>&1; then
+    echo "jq が無いため ${SETTINGS} を検査できないので中断する" >&2
+    exit 1
+  fi
+  settings_content="$(index_content "${SETTINGS}")"
+
+  # 秘匿情報の読み書き禁止。1件でも消えたら弱体化とみなす
+  required_deny=(
+    'Read(/**/.env)'
+    'Edit(/**/.env)'
+    'Read(/**/secrets/**)'
+    'Edit(/**/secrets/**)'
+  )
+  for rule in "${required_deny[@]}"; do
+    if ! jq -e --arg r "${rule}" '.permissions.deny // [] | index($r)' \
+      > /dev/null 2>&1 <<< "${settings_content}"; then
+      report settings-guardrail-weakened "${SETTINGS} の deny から ${rule} が消えている"
+    fi
+  done
+
+  # ガードレール(検査・フック・CI設定・隔離境界)の無断編集の防止。
+  # settings.json 自身が入っていることで、このリストの弱体化にも承認が要る
+  required_ask=(
+    'Edit(/.devcontainer/**)'
+    'Edit(/scripts/**)'
+    'Edit(/lefthook.yml)'
+    'Edit(/.github/workflows/**)'
+    'Edit(/.gitignore)'
+    'Edit(/Taskfile.yml)'
+    'Edit(/.claude/settings.json)'
+    'Edit(/.claude/settings.local.json)'
+  )
+  for rule in "${required_ask[@]}"; do
+    if ! jq -e --arg r "${rule}" '.permissions.ask // [] | index($r)' \
+      > /dev/null 2>&1 <<< "${settings_content}"; then
+      report settings-guardrail-weakened "${SETTINGS} の ask から ${rule} が消えている"
+    fi
+  done
+
+  # OS層の境界は devcontainer が担う(ADR-0007)。ホストの AppArmor は変更しない
+  # 方針のため、Bashサンドボックス(bwrap)はこの機械では使えない。境界の実体で
+  # あるファイアウォールが default-deny を保っていることを確かめる
+  for boundary_file in .devcontainer/devcontainer.json .devcontainer/init-firewall.sh; do
+    in_index "${boundary_file}" \
+      || report isolation-boundary-missing "${boundary_file} が無い(隔離境界の実体。ADR-0007)"
+  done
+  if in_index .devcontainer/init-firewall.sh; then
+    if ! index_content .devcontainer/init-firewall.sh | grep -qE 'iptables -P OUTPUT DROP'; then
+      report isolation-boundary-missing ".devcontainer/init-firewall.sh に default-deny(iptables -P OUTPUT DROP)が無い"
+    fi
+  fi
+fi
+
 if [ "${violations}" -gt 0 ]; then
   echo "" >&2
   echo "規約を守る仕組みが欠けている。背景は scripts/check-repo-conventions.sh の先頭コメントを参照する。" >&2

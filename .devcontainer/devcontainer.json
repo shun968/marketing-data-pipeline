@@ -1,0 +1,33 @@
+{
+  // 隔離境界の定義(docs/isolation.md §4 C / ADR-0007)。
+  // Claude Code をこのコンテナ内で動かすことで、hooks・MCP・Bash の子プロセスまで
+  // 全経路が iptables の default-deny に囲われる
+  "name": "marketing-data-pipeline",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  // NET_ADMIN / NET_RAW は init-firewall.sh の iptables/ipset 操作にだけ要る
+  "runArgs": [
+    "--cap-add=NET_ADMIN",
+    "--cap-add=NET_RAW"
+  ],
+  "remoteUser": "vscode",
+  // 認証情報(Claude Code ログイン・gh)はイメージ再ビルドを跨いで volume に保持する。
+  // ホストの ~/.claude や ~/.config/gh は持ち込まない(境界の内側に置くのは
+  // コンテナ専用に発行した認証だけにする)
+  "mounts": [
+    "source=marketing-data-pipeline-claude,target=/home/vscode/.claude,type=volume",
+    "source=marketing-data-pipeline-gh,target=/home/vscode/.config/gh,type=volume"
+  ],
+  // dashboard(127.0.0.1:8787)をホストのブラウザから見る
+  "forwardPorts": [8787],
+  // 起動のたびにファイアウォールを適用し直す。
+  // sudo はこの1コマンドにしか通らない(Dockerfile の sudoers 設定)
+  "postStartCommand": "sudo /usr/local/bin/init-firewall.sh",
+  "containerEnv": {
+    // 更新はイメージ再ビルドで行い、実行時の更新用ドメインを許可リストへ足さない
+    "DISABLE_AUTOUPDATER": "1",
+    // テレメトリ等の非必須通信を止め、許可リストを api.anthropic.com と claude.ai に絞る
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"
+  }
+}

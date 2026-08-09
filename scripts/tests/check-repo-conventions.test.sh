@@ -219,4 +219,85 @@ git add lefthook.yml
 assert_exit 0 "誤検知しない: 検査以外の呼び出し"
 teardown
 
+# --- 6. プロジェクト設定のガードレール弱体化 ---
+
+# 下限を満たした .claude/settings.json と隔離境界のファイルを書いてstageする。
+# 各ケースはここから1点だけ崩す
+write_settings() {
+  mkdir -p .claude .devcontainer
+  cat > .claude/settings.json <<'JSON'
+{
+  "permissions": {
+    "ask": [
+      "Edit(/.devcontainer/**)",
+      "Edit(/scripts/**)",
+      "Edit(/lefthook.yml)",
+      "Edit(/.github/workflows/**)",
+      "Edit(/.gitignore)",
+      "Edit(/Taskfile.yml)",
+      "Edit(/.claude/settings.json)",
+      "Edit(/.claude/settings.local.json)"
+    ],
+    "deny": [
+      "Read(/**/.env)",
+      "Edit(/**/.env)",
+      "Read(/**/secrets/**)",
+      "Edit(/**/secrets/**)"
+    ]
+  }
+}
+JSON
+  echo '{}' > .devcontainer/devcontainer.json
+  printf '#!/usr/bin/env bash\niptables -P OUTPUT DROP\n' > .devcontainer/init-firewall.sh
+  git add .claude/settings.json .devcontainer
+}
+
+# mutate_settings <jqフィルタ>: 設定を1点だけ崩してstageし直す
+mutate_settings() {
+  jq "$1" .claude/settings.json > .claude/settings.json.tmp
+  mv .claude/settings.json.tmp .claude/settings.json
+  git add .claude/settings.json
+}
+
+# settings.json が無い場合に通ることは、冒頭の「規約を満たした状態を通す」
+# (fixtureに settings.json を含まない)が担保している
+
+setup
+write_settings
+assert_exit 0 "誤検知しない: 設定が下限を満たしている"
+teardown
+
+setup
+write_settings
+mutate_settings '.permissions.deny -= ["Read(/**/.env)"]'
+assert_exit 1 "検知: 秘匿情報のdenyが消えている"
+teardown
+
+setup
+write_settings
+mutate_settings '.permissions.ask -= ["Edit(/scripts/**)"]'
+assert_exit 1 "検知: ガードレールのaskが消えている"
+teardown
+
+setup
+write_settings
+git rm -q --cached .devcontainer/init-firewall.sh
+assert_exit 1 "検知: 隔離境界のファイアウォールが無い"
+teardown
+
+setup
+write_settings
+printf '#!/usr/bin/env bash\n' > .devcontainer/init-firewall.sh
+git add .devcontainer/init-firewall.sh
+assert_exit 1 "検知: ファイアウォールにdefault-denyが無い"
+teardown
+
+# 参照先はindex。作業ツリーだけの変更で無関係なコミットを止めない
+setup
+write_settings
+jq 'del(.permissions.deny)' .claude/settings.json > .claude/settings.json.tmp
+mv .claude/settings.json.tmp .claude/settings.json
+assert_exit 0 "誤検知しない: 未stagedの設定変更"
+teardown
+
 suite_end

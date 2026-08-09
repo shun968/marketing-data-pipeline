@@ -1,8 +1,30 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "permissions": {
-    "allow": [
-      "Bash(gh pr merge:*)"
+    "allow": [],
+    "ask": [
+      "Edit(/.devcontainer/**)",
+      "Edit(/scripts/**)",
+      "Edit(/lefthook.yml)",
+      "Edit(/.github/workflows/**)",
+      "Edit(/.gitignore)",
+      "Edit(/Taskfile.yml)",
+      "Edit(/.claude/settings.json)",
+      "Edit(/.claude/settings.local.json)",
+      "WebFetch",
+      "WebSearch"
+    ],
+    "deny": [
+      "Bash(curl:*)",
+      "Bash(wget:*)",
+      "Read(/**/.env)",
+      "Edit(/**/.env)",
+      "Read(/**/.env.*)",
+      "Edit(/**/.env.*)",
+      "Read(/**/.credentials*)",
+      "Edit(/**/.credentials*)",
+      "Read(/**/secrets/**)",
+      "Edit(/**/secrets/**)"
     ]
   },
   "hooks": {
@@ -12,7 +34,7 @@
         "hooks": [
           {
             "type": "command",
-            "if": "Bash(git add *)",
+            "if": "Bash(git add:*)",
             "command": "root=\"$(git rev-parse --show-toplevel 2>/dev/null)\" || exit 0; cd \"$root\" || exit 0; ./scripts/check-no-private-data.sh || exit 2",
             "statusMessage": "収集データ・秘匿情報の混入を確認中"
           }
