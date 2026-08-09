@@ -20,6 +20,9 @@ set -euo pipefail
 # 既知の限界:
 #   許可IPは起動時に解決した値で固定される。CDN等でIPが変わったら
 #   コンテナを再起動する。
+#   許可はIPアドレス単位であり、TLS SNI/Hostでは絞っていない。共有CDN上の
+#   ドメイン(pypi.org等)は同じIPを他サービスとも共有しうるため、「許可ドメイン
+#   以外へ通信できない」という保証はドメイン単位ではなくIP単位でしか成立しない。
 #
 # 検査: scripts/check-repo-conventions.sh が default-deny 行の存在を見る
 
@@ -27,6 +30,15 @@ if [ "$(id -u)" -ne 0 ]; then
   echo "root で実行する(sudo /usr/local/bin/init-firewall.sh)" >&2
   exit 1
 fi
+
+# fail-closed: 許可リスト構築中(GitHub IPレンジのcurl・各ドメインのdig)は
+# 一時的にOUTPUTをACCEPTへ戻す必要があり(下のブロックを見よ)、その窓の間に
+# 名前解決やHTTP取得が失敗して`set -e`で中断すると、ACCEPTのまま終了してしまう
+# (fail-open)。EXITトラップで、正常終了かどうかに関わらずdefault-denyを
+# 必ず立て直す
+trap 'iptables -P INPUT DROP 2> /dev/null || true
+iptables -P FORWARD DROP 2> /dev/null || true
+iptables -P OUTPUT DROP 2> /dev/null || true' EXIT
 
 # 許可する外部ホスト。「必要最低限」の判断根拠を1件ずつ書く。
 # GitHub は IP レンジが広く可変のため、下の meta API から別途取り込む
@@ -99,14 +111,19 @@ iptables -P FORWARD DROP
 iptables -P OUTPUT DROP
 
 # IPv6 は許可リストを組んでいないため全て遮断する。
-# ここを塞がないと、IPv6の生えている環境で許可リストが素通りになる
+# ここを塞がないと、IPv6の生えている環境で許可リストが素通りになる。
+#
+# **`|| true` で握り潰さない。** IPv6カーネルモジュールが無い等でここが
+# 失敗すると、以前は成功メッセージのまま起動していた(IPv6だけ無防備な状態が
+# 検知されない)。IPv4側の自己検証と同じく、失敗したら`set -e`でここを
+# fail-loudにする(上のEXITトラップでIPv4のdefault-denyは維持される)
 if command -v ip6tables > /dev/null 2>&1; then
-  ip6tables -P INPUT DROP 2> /dev/null || true
-  ip6tables -P FORWARD DROP 2> /dev/null || true
-  ip6tables -P OUTPUT DROP 2> /dev/null || true
-  ip6tables -F 2> /dev/null || true
-  ip6tables -A INPUT -i lo -j ACCEPT 2> /dev/null || true
-  ip6tables -A OUTPUT -o lo -j ACCEPT 2> /dev/null || true
+  ip6tables -P INPUT DROP
+  ip6tables -P FORWARD DROP
+  ip6tables -P OUTPUT DROP
+  ip6tables -F
+  ip6tables -A INPUT -i lo -j ACCEPT
+  ip6tables -A OUTPUT -o lo -j ACCEPT
 fi
 
 # 自己検証。遮断が効いていないまま「守れているつもり」で起動するのが最悪の形
