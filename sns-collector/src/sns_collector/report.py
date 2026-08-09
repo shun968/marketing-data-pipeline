@@ -152,6 +152,11 @@ def _domain_counts(
 
     直前期間に存在しなかったドメインは previous_count=0 として扱う。0で
     割ると増減率が定義できないため、比率ではなく差分で見せる。
+
+    **2回に分けたクエリを`FILTER`句で1本化しない。** `report`は週次cronの
+    低頻度実行でありホットパスではないため、2回の軽いCOUNTクエリを1回へ
+    減らす利益より、バインドパラメータの並びを10個手で管理する複雑さが
+    もたらすバグ混入のリスクのほうが大きいと判断した。
     """
     period_length = until - since
     prev_since = since - period_length
