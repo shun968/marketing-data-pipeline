@@ -1,0 +1,68 @@
+# 潜在的機会マイニング指示
+
+`insights` の `complaint`/`need` を、`monetizable` とは別の軸で読み直す。**支払い意思の明示的な表現ではなく、「既存製品・装備の具体的な機能欠落」×「小規模な開発で埋められそうか」**という軸で候補を拾う。
+
+**これは`monetizable=true`より弱い、推測を含むシグナルである。** 事業判断の確定材料にはできない。次のキーワード改訂・追加検証の仮説候補として扱う。
+
+## 手順
+
+1. 対象のレポート(`reports/report-<since>_<until>.md`)のファイル名から`<since>`/`<until>`を読み取り、その期間の`insights`(`insight_type != 'none'`)を`posts.text`と結合して読む。**期間を絞らないと全期間分を対象期間分と誤認する。** `report.py`が`domain別の件数`等で使っている`extracted_at`基準の絞り込みに揃える。トピックディレクトリに`sns_collector`自身の`pyproject.toml`が無い場合(maritime-collector等)は`--project`でsns-collector側の環境を指定する。
+
+   ```sh
+   uv run --project ../sns-collector python -c "
+   import duckdb
+   conn = duckdb.connect('data/analysis.duckdb', read_only=True)
+   rows = conn.execute('''
+       SELECT i.post_id, i.insight_type, i.pain_level, i.competitors, i.summary, p.text, p.url
+       FROM insights i JOIN posts p ON i.post_id = p.id
+       WHERE i.insight_type != 'none'
+         AND i.extracted_at >= '<since>' AND i.extracted_at < '<until>'
+       ORDER BY i.pain_level DESC
+   ''').fetchall()
+   for r in rows:
+       print(r)
+   "
+   ```
+
+2. `config/domains.yaml` の `hypothesis` / `service_candidate` を確認する
+3. 各投稿について、既存製品・装備の**具体的な**機能欠落が書かれているか判定する(下記「対象とすること」)
+4. 同じテーマが複数の独立した投稿で繰り返し言及されているものを候補にする
+5. 候補ごとに「小規模で埋められるか」を判定する(下記「除外すること」に当てはまらないか)
+6. `reports/report-<since>_<until>.md` の末尾に「## 潜在的な機会」節を追記し、同じファイルへ上書き保存する(新規ファイルは作らない)
+
+## 対象とすること
+
+- 既存製品の限界が具体的に書かれている(「〜が無い」「〜しかできない」「〜は対応していない」)。一般的な不満・感想は対象外
+- **同じテーマが独立した複数の投稿で繰り返し言及されている。** 1件だけの単発言及は弱すぎるため、候補にはするが「単発」と明記する
+- 既存の公開データ・オープンAPI・オープン規格(業界による。例: AIS)を使えば新規ハードウェアの調達・認証無しで着手できる
+- 既存製品を丸ごと置き換えるのではなく、**上乗せする補助ツール**として実装できる(既存の認証済み装備は残したまま動く)
+
+## 除外すること
+
+- 操舵・機関等の制御システムへ実際に介入するもの(安全認証のハードルが高く、小規模の定義から外れる)
+- ハードウェア・信号処理の改善が要るもの(専門領域の深い投資が要る)
+- 人員配置・労務など、製品では解決できない構造的問題
+- 既に同種の製品が存在し(`competitors` に記録済み)、明確な差別化点が投稿から読み取れないもの
+
+## 出力形式
+
+`reports/report-<since>_<until>.md` の末尾に追記する表。
+
+```markdown
+## 潜在的な機会(既存製品の機能欠落 × 小規模開発)
+
+**`monetizable=true`とは別の、推測を含む弱いシグナル。** 次のキーワード改訂・追加検証の仮説候補として扱う。
+
+| テーマ | 根拠(独立した言及件数・代表URL) | 小規模で埋められる理由 |
+|---|---|---|
+| ... | ... 件: URL, URL | ... |
+
+対象期間に該当が無ければ「今期は該当なし」と明記する。
+```
+
+## 守ること
+
+- **元の投稿にない主張を作らない。** 推測は「〜と考えられる」等で明示し、投稿が直接述べている内容と区別する
+- **単発言及と複数件の裏付けがある言及を同列に書かない。** 件数を必ず明記する
+- **除外した理由も残す価値がある場合は書く。** 次回同じ検討を繰り返さないため
+- 加筆は日本語で書く
