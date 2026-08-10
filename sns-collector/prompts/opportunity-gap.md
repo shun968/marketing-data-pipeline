@@ -6,18 +6,21 @@
 
 ## 手順
 
-1. 対象期間の `insights`(`insight_type != 'none'`)を `posts.text` と結合して読む。
+1. 対象のレポート(`reports/report-<since>_<until>.md`)のファイル名から`<since>`/`<until>`を読み取り、その期間の`insights`(`insight_type != 'none'`)を`posts.text`と結合して読む。**期間を絞らないと全期間分を対象期間分と誤認する。** `report.py`が`domain別の件数`等で使っている`extracted_at`基準の絞り込みに揃える。トピックディレクトリに`sns_collector`自身の`pyproject.toml`が無い場合(maritime-collector等)は`--project`でsns-collector側の環境を指定する。
 
    ```sh
-   uv run python -c "
+   uv run --project ../sns-collector python -c "
    import duckdb
    conn = duckdb.connect('data/analysis.duckdb', read_only=True)
    rows = conn.execute('''
        SELECT i.post_id, i.insight_type, i.pain_level, i.competitors, i.summary, p.text, p.url
        FROM insights i JOIN posts p ON i.post_id = p.id
        WHERE i.insight_type != 'none'
+         AND i.extracted_at >= '<since>' AND i.extracted_at < '<until>'
        ORDER BY i.pain_level DESC
    ''').fetchall()
+   for r in rows:
+       print(r)
    "
    ```
 

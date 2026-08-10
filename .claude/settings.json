@@ -42,8 +42,8 @@
           },
           {
             "type": "command",
-            "command": "cmd=$(jq -r '.tool_input.command // empty'); case \"$cmd\" in *\"sns-collector report\"*) echo '{\"systemMessage\": \"レポート生成後の手順を忘れずに: prompts/report-insights.md(洞察・仮説の加筆)/ prompts/opportunity-gap.md(潜在的な機会の抽出、任意)をClaude Codeセッションで実行できます。診断自体はここでは自動実行しません(ADR-0003)。\"}' ;; esac",
-            "statusMessage": "レポート生成後の作業手順を確認中"
+            "command": "# if(Bash(prefix:*))は使えない。実際の呼び出しは`uv run sns-collector report`や`uv run --project ../sns-collector sns-collector report`など先頭がuv runで始まる形が全てで、prefixが`sns-collector report`にならない。そのためコマンド文字列内でcase判定する\ncmd=$(jq -r '.tool_input.command // empty'); case \"$cmd\" in *\"sns-collector report\"*) echo '{\"systemMessage\": \"レポート生成後の手順を忘れずに: prompts/report-insights.md(洞察・仮説の加筆)/ prompts/opportunity-gap.md(潜在的な機会の抽出、任意)をClaude Codeセッションで実行できます。診断自体はここでは自動実行しません(ADR-0003)。\"}' ;; esac",
+            "statusMessage": "sns-collector reportの実行か確認中"
           }
         ]
       },
