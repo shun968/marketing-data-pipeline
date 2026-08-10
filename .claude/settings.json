@@ -39,6 +39,11 @@
             "if": "Bash(git add:*)",
             "command": "root=\"$(git rev-parse --show-toplevel 2>/dev/null)\" || exit 0; cd \"$root\" || exit 0; ./scripts/check-no-private-data.sh || exit 2",
             "statusMessage": "収集データ・秘匿情報の混入を確認中"
+          },
+          {
+            "type": "command",
+            "command": "cmd=$(jq -r '.tool_input.command // empty'); case \"$cmd\" in *\"sns-collector report\"*) echo '{\"systemMessage\": \"レポート生成後の手順を忘れずに: prompts/report-insights.md(洞察・仮説の加筆)/ prompts/opportunity-gap.md(潜在的な機会の抽出、任意)をClaude Codeセッションで実行できます。診断自体はここでは自動実行しません(ADR-0003)。\"}' ;; esac",
+            "statusMessage": "レポート生成後の作業手順を確認中"
           }
         ]
       },
