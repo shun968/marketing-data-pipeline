@@ -65,13 +65,18 @@ hackernews:
 
 # 改訂履歴
 # 2026-08-10 「既存製品(OpenCPN等)のCPA/TCPAアラームへの不満」を狙って
-#   9語(bluesky 5語・hackernews 4語)を検証したが、的中したのは
-#   "AIS collision alarm"(bluesky)の1件のみ。他8語は無関係な文脈
-#   (自動車・航空機の警報論、無関係な求人・技術記事)がヒットするか0件だった。
+#   bluesky 9語・hackernews 4語(計13語)を検証したが、的中したのは
+#   "AIS collision alarm"(bluesky)の1件のみ。
+#   bluesky不採用8語: "OpenCPN CPA alarm"(0件)、"OpenCPN guard zone"(0件)、
+#   "AIS alarm false"(3件、AI社会論・独語記事・DSC遭難警報bot等いずれも無関係)、
+#   "CPA alarm annoying"(0件)、"CPA alarm false"(0件)、
+#   "turned off CPA alarm"(1件、"AIS collision alarm"で既に見つけた投稿と同一)、
+#   "AIS alarm annoying"(0件)、"chartplotter alarm annoying"(0件)。
 #   採用したのは "AIS collision alarm" のみ(bluesky側に追加。上記参照)。
-#   hackernews側の候補("OpenCPN CPA alarm" 0件、"AIS collision alarm false"
-#   14件も無関係、"CPA alarm boat" 20件無関係、"guard zone alarm AIS" 20件無関係)
-#   は不採用。
+#   hackernews不採用4語: "OpenCPN CPA alarm"(0件)、
+#   "AIS collision alarm false"(14件、自動車/航空機の警報論など無関係)、
+#   "CPA alarm boat"(20件、求人・無関係な技術記事)、
+#   "guard zone alarm AIS"(20件、無関係な技術記事)。
 # 2026-08-10 hackernewsに"hiring maritime"を追加。狙いは個人の困りごとではなく、
 #   HN月次求人スレッド(Ask HN: Who is hiring?)を横断検索して海事ソフトウェア企業の
 #   求人(=市場投資の裏付け)を拾うこと。search_by_dateで実測、20件中Saildrone(自律
