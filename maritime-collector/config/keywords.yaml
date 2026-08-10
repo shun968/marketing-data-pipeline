@@ -60,8 +60,17 @@ hackernews:
     # 上で候補から外した。
     - "ARPA radar plotting" # [実測○] UAIS/ARPAの信頼性に関する議論がヒット(search_by_dateで確認)
     - "autonomous ship navigation" # [実測○] 自律航行船。search_by_dateで20件中20件が船舶関連語を含む
+    - "hiring maritime" # [実測○] HNの月次求人スレッド(Ask HN: Who is hiring?)を横断検索する。個人の困りごとではなく「企業が採用している」という市場投資の裏付け・新規競合発見のシグナル。20件中Saildrone/Saronic/Spire Global/Greywing(vessel routing)等の海事ソフトウェア企業求人が約半数、残りは無関係な政治コメント等のノイズ
 
 # 改訂履歴
+# 2026-08-10 hackernewsに"hiring maritime"を追加。狙いは個人の困りごとではなく、
+#   HN月次求人スレッド(Ask HN: Who is hiring?)を横断検索して海事ソフトウェア企業の
+#   求人(=市場投資の裏付け)を拾うこと。search_by_dateで実測、20件中Saildrone(自律
+#   海洋ドローン)・Saronic(自律水上艇)・Spire Global(衛星/海事データ)・Greywing
+#   (grey-wing.com、乗組員交代・航路最適化ソフト、Show HN投稿本文で実在確認済み)
+#   等の海事ソフトウェア企業の求人が約半数。残りは政治的コメント・無関係業界の求人
+#   等のノイズ。既存の「困りごと」系キーワードとは異なる役割(競合発見・市場検証)
+#   として位置づける。
 # 2026-08-10 CPA/TCPA/AISの組み合わせ候補を検証したが不採用。
 #   "CPA vessel"はチッタゴン港湾局(Chittagong Port Authority)のCPAと衝突。
 #   "TCPA vessel"/"TCPA collision"はヒット0件。
