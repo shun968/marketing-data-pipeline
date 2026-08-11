@@ -17,14 +17,27 @@ from sns_collector.domain.config import ConfigError, HackerNewsJobsConfig
 
 NOW = datetime(2026, 8, 11, tzinfo=UTC)
 
-HIRING_THREAD = {"objectID": "49156683", "title": "Ask HN: Who is hiring? (August 2026)"}
-HIRED_THREAD = {"objectID": "49156682", "title": "Ask HN: Who wants to be hired? (August 2026)"}
+HIRING_THREAD = {
+    "objectID": "49156683",
+    "title": "Ask HN: Who is hiring? (August 2026)",
+    "created_at": "2026-08-03T15:00:00Z",
+}
+HIRED_THREAD = {
+    "objectID": "49156682",
+    "title": "Ask HN: Who wants to be hired? (August 2026)",
+    "created_at": "2026-08-03T15:00:00Z",
+}
 # 案件スレッドは2026年1月からjon_northが引き継いでいる(2026-08-11 実測)
 FREELANCER_THREAD = {
     "objectID": "49157021",
     "title": "Ask HN: Freelancer? Seeking freelancer? (August 2026)",
+    "created_at": "2026-08-03T16:00:00Z",
 }
-OLD_HIRING_THREAD = {"objectID": "48747976", "title": "Ask HN: Who is hiring? (July 2026)"}
+OLD_HIRING_THREAD = {
+    "objectID": "48747976",
+    "title": "Ask HN: Who is hiring? (July 2026)",
+    "created_at": "2026-07-01T15:00:00Z",
+}
 
 THREADS_BY_AUTHOR = {
     "whoishiring": [HIRING_THREAD, HIRED_THREAD, OLD_HIRING_THREAD],
@@ -64,30 +77,35 @@ def _labels(config: HackerNewsJobsConfig) -> list[str]:
     return [t.label for t in hnjobs_source.tasks(config, NOW, lambda _m: None)]
 
 
+def _contexts(config: HackerNewsJobsConfig) -> list[str]:
+    """どのスレッドを対象にしたか。ログでは行末の補足として出る。"""
+    return [t.context or "" for t in hnjobs_source.tasks(config, NOW, lambda _m: None)]
+
+
 def test_案件スレッドの主催が別アカウントでも取りこぼさない(monkeypatch: pytest.MonkeyPatch):
     """2026年1月に whoishiring -> jon_north の引き継ぎが起きている。
 
     単一アカウント固定の実装だと、この月から案件側だけが静かに0件になる。
     """
     _use_threads(monkeypatch, THREADS_BY_AUTHOR)
-    assert any(FREELANCER_THREAD["title"] in label for label in _labels(_config()))
+    assert FREELANCER_THREAD["title"] in _contexts(_config())
 
 
 def test_求職スレッドは既定で採らない(monkeypatch: pytest.MonkeyPatch):
     """hired は「金を出す側」ではない。"""
     _use_threads(monkeypatch, THREADS_BY_AUTHOR)
-    assert not any(HIRED_THREAD["title"] in label for label in _labels(_config()))
+    assert HIRED_THREAD["title"] not in _contexts(_config())
 
 
 def test_上限は種別ごとに数える(monkeypatch: pytest.MonkeyPatch):
     """全体で数えると、毎月立つ求人スレッドだけで枠が埋まり案件が溢れる。"""
     _use_threads(monkeypatch, THREADS_BY_AUTHOR)
-    labels = _labels(_config(thread_limit=1))
+    contexts = _contexts(_config(thread_limit=1))
 
-    assert len(labels) == 2
-    assert any(HIRING_THREAD["title"] in label for label in labels)
-    assert any(FREELANCER_THREAD["title"] in label for label in labels)
-    assert not any(OLD_HIRING_THREAD["title"] in label for label in labels)
+    assert len(contexts) == 2
+    assert HIRING_THREAD["title"] in contexts
+    assert FREELANCER_THREAD["title"] in contexts
+    assert OLD_HIRING_THREAD["title"] not in contexts
 
 
 def test_スレッドとキーワードの直積になる(monkeypatch: pytest.MonkeyPatch):
@@ -173,3 +191,42 @@ def test_スレッド一覧の取得失敗もSourceUnavailableになる(monkeypa
 
     with pytest.raises(SourceUnavailable):
         hnjobs_source.tasks(_config(), NOW, lambda _m: None)
+
+
+def test_新しいスレッドが古いホストの分に押し出されない(monkeypatch: pytest.MonkeyPatch):
+    """種別の枠は日付で埋める。取得したアカウントの順で埋めてはいけない。
+
+    案件スレッドは2025年までwhoishiring、2026年からjon_north。アカウント順に
+    枠を消費すると、旧ホストの2025年分が先に入り、現行ホストの2026年分が落ちる。
+    """
+    old_freelancer = {
+        "objectID": "45438502",
+        "title": "Ask HN: Freelancer? Seeking freelancer? (October 2025)",
+        "created_at": "2025-10-01T15:00:00Z",
+    }
+    new_freelancer = {**FREELANCER_THREAD, "created_at": "2026-08-03T15:00:00Z"}
+    _use_threads(
+        monkeypatch,
+        {
+            "whoishiring": [
+                {**HIRING_THREAD, "created_at": "2026-08-03T15:00:00Z"},
+                old_freelancer,
+            ],
+            "jon_north": [new_freelancer],
+        },
+    )
+
+    contexts = _contexts(_config(thread_kinds=["freelancer"], thread_limit=1))
+
+    assert contexts == [new_freelancer["title"]], "古い方が枠を取っている"
+
+
+def test_ログの接頭辞にスレッド名を混ぜない(monkeypatch: pytest.MonkeyPatch):
+    """スレッド名は context（行末の補足）へ。label に入れると3要素になり、
+    dashboard がキーワード名にスレッド名まで含めて数える。
+    """
+    _use_threads(monkeypatch, THREADS_BY_AUTHOR)
+
+    for task in hnjobs_source.tasks(_config(["embedded"]), NOW, lambda _m: None):
+        assert task.label == "hnjobs:embedded"
+        assert task.context

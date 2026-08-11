@@ -32,18 +32,24 @@ class Record:
 class CollectTask:
     """1回分の検索。
 
-    label   ログに出す識別子。キーワード単体のこともあれば、
-            hnjobs のように「スレッド:キーワード」のこともある
-    keyword `matched_keywords` へ記録する語。labelと違い、集計に使う値
+    label   ログの接頭辞。**必ず `<プラットフォーム>:<キーワード>` の形にする。**
+            `dashboard/src/dashboard/sources/reports.py` の `_RESULT` が
+            この2要素として解析し、キーワード単位で集計する。3要素にすると
+            キーワード名に余計な文字列が混ざり、月ごとに別キーワードとして
+            数えられて「新規0件のキーワード」の表が壊れる
+    keyword `matched_keywords` へ記録する語。集計に使う値
     fetch   生レスポンスの列を返す。失敗時は SourceUnavailable を投げる
     parse   生レスポンス1件を Record にする。収集対象外なら None を返す
             （hnjobs が求人票以外のコメントを落とすのに使う）
+    context ログ行の末尾へ添える補足（hnjobs のスレッド名など）。
+            解析対象の並びより後ろに置くため、集計には影響しない
     """
 
     label: str
     keyword: str
     fetch: Callable[[], list[dict]]
     parse: Callable[[dict], Record | None]
+    context: str | None = None
 
 
 @dataclass(frozen=True)

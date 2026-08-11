@@ -102,6 +102,9 @@ def collect(tasks: list[CollectTask], ports: CollectPorts, *, unit: str = "投�
 
         ports.record_keyword_hits(known_hits, task.keyword)
 
+        # **この行の並びは dashboard が解析する。** 先頭の `[...]` と
+        # 「取得/新規/スキップ」までの形を変えるときは、
+        # dashboard/src/dashboard/sources/reports.py の `_RESULT` も直す
         message = (
             f"[{task.label}] 取得: {len(raw_items)}件 "
             f"/ 新規: {len(new_records)}件 / スキップ: {skip_count}件"
@@ -110,6 +113,8 @@ def collect(tasks: list[CollectTask], ports: CollectPorts, *, unit: str = "投�
             message += f" / 対象外: {excluded_count}件"
         if malformed_count:
             message += f" / 不正: {malformed_count}件"
+        if task.context:
+            message += f" ({task.context})"
         ports.notify(message)
 
     return CollectSummary(

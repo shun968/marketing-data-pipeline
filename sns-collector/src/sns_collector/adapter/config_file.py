@@ -26,6 +26,39 @@ def _load_keywords_file(path: Path) -> dict:
     return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
 
 
+def _str_option(raw: dict, key: str, default: str) -> str:
+    """設定の文字列値。**キーが在って値が空の場合を既定値へ倒す。**
+
+    `raw.get(key, default)` はキーが存在して None のとき既定値を使わない。
+    YAMLで `sort:` と書いて値を省くと None が入り、そのままAPIへ渡って
+    意味の分からない失敗になる。`hnjobs/client.py` で
+    `payload.get("hits") or []` として塞いだのと同じ穴が、設定側にもある。
+    """
+    value = raw.get(key)
+    return str(value) if value else default
+
+
+def _int_option(raw: dict, key: str, default: int, *, minimum: int = 1) -> int:
+    """設定の整数値。空なら既定値、下限を割ったら ConfigError。
+
+    `int(None)` の TypeError は `cli.main` が捕まえないため、利用者には
+    素のトレースバックだけが見える。0以下は「静かに何も集めない」設定になり、
+    収集できていないことに気づけない。
+    """
+    value = raw.get(key)
+    if value is None:
+        return default
+    number = int(value)
+    if number < minimum:
+        raise ConfigError(f"{key} は {minimum} 以上である必要があります（指定値: {number}）。")
+    return number
+
+
+def _list_option(raw: dict, key: str, default: list[str]) -> list[str]:
+    value = raw.get(key)
+    return list(value) if value else list(default)
+
+
 def load_bluesky_config(path: Path) -> BlueskyConfig:
     raw = _load_keywords_file(path).get("bluesky", {})
     keywords = raw.get("keywords", [])
@@ -33,8 +66,8 @@ def load_bluesky_config(path: Path) -> BlueskyConfig:
         raise ConfigError(f"{path} に bluesky.keywords が定義されていません。")
 
     return BlueskyConfig(
-        sort=raw.get("sort", "latest"),
-        limit_per_keyword=int(raw.get("limit_per_keyword", 50)),
+        sort=_str_option(raw, "sort", "latest"),
+        limit_per_keyword=_int_option(raw, "limit_per_keyword", 50),
         keywords=list(keywords),
     )
 
@@ -55,10 +88,10 @@ def load_youtube_config(path: Path, env_path: Path | None = None) -> YouTubeConf
 
     return YouTubeConfig(
         api_key=api_key,
-        order=raw.get("order", "relevance"),
-        max_results_per_keyword=int(raw.get("max_results_per_keyword", 25)),
-        region_code=raw.get("region_code", "JP"),
-        relevance_language=raw.get("relevance_language", "ja"),
+        order=_str_option(raw, "order", "relevance"),
+        max_results_per_keyword=_int_option(raw, "max_results_per_keyword", 25),
+        region_code=_str_option(raw, "region_code", "JP"),
+        relevance_language=_str_option(raw, "relevance_language", "ja"),
         keywords=list(keywords),
     )
 
@@ -72,8 +105,8 @@ def load_hackernews_config(path: Path) -> HackerNewsConfig:
     return HackerNewsConfig(
         # Algoliaのtagsは括弧が無いとAND(=story かつ comment を同時に満たす、
         # 常に0件)になる。"(story,comment)"のようにOR対象を括弧で囲む必要がある
-        tags=raw.get("tags", "(story,comment)"),
-        hits_per_page=int(raw.get("hits_per_page", 50)),
+        tags=_str_option(raw, "tags", "(story,comment)"),
+        hits_per_page=_int_option(raw, "hits_per_page", 50),
         keywords=list(keywords),
     )
 
@@ -87,9 +120,9 @@ def load_hnjobs_config(path: Path) -> HackerNewsJobsConfig:
     return HackerNewsJobsConfig(
         # 既定は求人と案件のみ。求職スレッド(hired)は「金を出す側」ではないため採らない。
         # 値の妥当性は adapter/source/hnjobs/source.py がタスク生成時に検査する
-        thread_kinds=list(raw.get("thread_kinds", ["hiring", "freelancer"])),
-        thread_limit=int(raw.get("thread_limit", 4)),
-        hits_per_page=int(raw.get("hits_per_page", 50)),
+        thread_kinds=_list_option(raw, "thread_kinds", ["hiring", "freelancer"]),
+        thread_limit=_int_option(raw, "thread_limit", 3),
+        hits_per_page=_int_option(raw, "hits_per_page", 50),
         keywords=list(keywords),
     )
 
@@ -109,8 +142,8 @@ def load_github_config(path: Path, env_path: Path | None = None) -> GitHubConfig
     return GitHubConfig(
         token=token,
         # is:issue を外すとPull Requestも混ざる
-        qualifiers=raw.get("qualifiers", "is:issue"),
-        per_page=int(raw.get("per_page", 50)),
+        qualifiers=_str_option(raw, "qualifiers", "is:issue"),
+        per_page=_int_option(raw, "per_page", 50),
         keywords=list(keywords),
     )
 
@@ -137,9 +170,9 @@ def load_reddit_config(path: Path, env_path: Path | None = None) -> RedditConfig
         client_id=os.environ["REDDIT_CLIENT_ID"],
         client_secret=os.environ["REDDIT_CLIENT_SECRET"],
         user_agent=os.environ["REDDIT_USER_AGENT"],
-        sort=raw.get("sort", "new"),
-        time_filter=raw.get("time_filter", "month"),
-        limit_per_keyword=int(raw.get("limit_per_keyword", 50)),
+        sort=_str_option(raw, "sort", "new"),
+        time_filter=_str_option(raw, "time_filter", "month"),
+        limit_per_keyword=_int_option(raw, "limit_per_keyword", 50),
         keywords=list(keywords),
     )
 

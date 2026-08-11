@@ -240,3 +240,40 @@ def test_redditのkeywords未設定は設定エラーになる(tmp_path: Path, m
 
     with pytest.raises(ConfigError, match="reddit.keywords"):
         load_reddit_config(keywords_path)
+
+
+def test_値を書かない設定キーは既定値へ倒す(tmp_path: Path):
+    """`thread_kinds:` のように値を省くと None が入る。
+
+    `raw.get(key, default)` はキーが存在して None のとき既定値を使わないため、
+    `list(None)` / `int(None)` が TypeError になる。cli.main は ConfigError しか
+    案内しないので、利用者には素のトレースバックだけが見える。
+    """
+    from sns_collector.adapter.config_file import load_bluesky_config, load_hnjobs_config
+
+    keywords_path = tmp_path / "keywords.yaml"
+    keywords_path.write_text(
+        'bluesky:\n  sort:\n  limit_per_keyword:\n  keywords: ["語"]\n'
+        'hnjobs:\n  thread_kinds:\n  thread_limit:\n  keywords: ["語"]\n',
+        encoding="utf-8",
+    )
+
+    bluesky = load_bluesky_config(keywords_path)
+    assert bluesky.sort == "latest"
+    assert bluesky.limit_per_keyword == 50
+
+    hnjobs = load_hnjobs_config(keywords_path)
+    assert hnjobs.thread_kinds == ["hiring", "freelancer"]
+    assert hnjobs.thread_limit == 3, "コードの既定値は config/keywords.yaml と揃える"
+
+
+def test_0以下の件数指定は設定エラーになる(tmp_path: Path):
+    """0は「静かに何も集めない」設定になり、収集できていないことに気づけない。"""
+    from sns_collector.adapter.config_file import load_hnjobs_config
+    from sns_collector.domain.config import ConfigError
+
+    keywords_path = tmp_path / "keywords.yaml"
+    keywords_path.write_text('hnjobs:\n  thread_limit: 0\n  keywords: ["語"]\n', encoding="utf-8")
+
+    with pytest.raises(ConfigError, match="thread_limit"):
+        load_hnjobs_config(keywords_path)
