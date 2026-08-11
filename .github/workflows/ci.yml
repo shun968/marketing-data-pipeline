@@ -80,6 +80,12 @@ jobs:
       - name: doc duplication
         run: ./scripts/check-doc-duplication.sh
 
+      # 層をまたぐ import の向き(ADR-0011)。
+      # 収集元を1つ足すたびに複製が増え、6つ目で兄弟への直接依存が生まれた。
+      # 散文の規約では発火しないため、検査に変換してある
+      - name: layer deps
+        run: ./scripts/check-layer-deps.sh
+
   dashboard:
     name: dashboard
     runs-on: ubuntu-latest

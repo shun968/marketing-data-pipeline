@@ -6,16 +6,14 @@ from pathlib import Path
 
 import pytest
 
-from sns_collector.db import connect, insert_records
-from sns_collector.extract import (
-    ValidationError,
-    load,
+from sns_collector.adapter.db import connect, insert_records
+from sns_collector.adapter.db.extract_load import load, status
+from sns_collector.adapter.db.extract_prepare import (
+    DEFAULT_PLATFORMS,
     prepare,
     reopen_for_reextraction,
-    status,
-    validate,
 )
-from sns_collector.extract.prepare import DEFAULT_PLATFORMS
+from sns_collector.domain.insight import ValidationError, validate
 from tests.conftest import BLUESKY_RECORD, YOUTUBE_RECORD
 
 

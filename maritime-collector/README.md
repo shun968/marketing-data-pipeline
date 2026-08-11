@@ -24,7 +24,7 @@ uv run --project ../sns-collector sns-collector db init --data-dir data --db dat
 ```sh
 cd sns-collector
 uv run python -c "
-from sns_collector.bluesky.client import search_posts
+from sns_collector.adapter.source.bluesky.client import search_posts
 hits = search_posts('watchkeeping fatigue', sort='latest', limit=50)
 for h in hits[:10]:
     print(h.get('author', {}).get('handle'), '|', h.get('record', {}).get('text', '')[:80])
@@ -38,7 +38,7 @@ for h in hits[:10]:
 ```sh
 cd sns-collector
 uv run python -c "
-from sns_collector.hackernews.client import search_items
+from sns_collector.adapter.source.hackernews.client import search_items
 hits = search_items('ARPA radar plotting', tags='(story,comment)', hits_per_page=20)
 for h in hits[:10]:
     print(h.get('author'), '|', (h.get('comment_text') or h.get('story_text') or h.get('title') or '')[:100])

@@ -4,8 +4,8 @@ import json
 
 import pytest
 
-from sns_collector.db.adapters import (
-    AdapterError,
+from sns_collector.adapter.db.mapping import (
+    MappingError,
     from_bluesky,
     from_github,
     from_hackernews,
@@ -114,7 +114,7 @@ def test_hnjobsのmetricsにスレッド種別と発注受注の別を含める(
 
 def test_hnjobsはitem_idを欠く行を捨てる():
     broken = {k: v for k, v in HNJOBS_RECORD.items() if k != "item_id"}
-    with pytest.raises(AdapterError):
+    with pytest.raises(MappingError):
         from_hnjobs(broken)
 
 
@@ -170,19 +170,19 @@ def test_redditのposted_atはmodelsが変換済みのISO8601から読める():
 
 def test_必須フィールドが無ければ弾く():
     broken = {k: v for k, v in BLUESKY_RECORD.items() if k != "post_id"}
-    with pytest.raises(AdapterError):
+    with pytest.raises(MappingError):
         from_bluesky(broken)
 
-    with pytest.raises(AdapterError):
+    with pytest.raises(MappingError):
         from_youtube({**YOUTUBE_RECORD, "video_id": ""})
 
-    with pytest.raises(AdapterError):
+    with pytest.raises(MappingError):
         from_hackernews({**HACKERNEWS_RECORD, "item_id": ""})
 
-    with pytest.raises(AdapterError):
+    with pytest.raises(MappingError):
         from_github({**GITHUB_RECORD, "issue_id": ""})
 
-    with pytest.raises(AdapterError):
+    with pytest.raises(MappingError):
         from_reddit({**REDDIT_RECORD, "post_id": ""})
 
 

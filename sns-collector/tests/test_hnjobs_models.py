@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from sns_collector.hnjobs.models import (
+from sns_collector.adapter.source.hnjobs.dto import (
     HackerNewsJobPost,
     is_job_entry,
     seeking_role,

@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from sns_collector.github.client import search_issues
+from sns_collector.adapter.source.github.client import search_issues
 
 
 def _search(payload: dict) -> list[dict]:
-    with patch("sns_collector.github.client.get_json", return_value=payload):
+    with patch("sns_collector.adapter.source.github.client.get_json", return_value=payload):
         return search_issues("kw", "is:issue", 50, None)
 
 

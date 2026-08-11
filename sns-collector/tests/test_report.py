@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from sns_collector.db import connect
-from sns_collector.report import build_report, generate, parse_since, render_markdown
+from sns_collector.adapter.db import connect
+from sns_collector.adapter.db.report import build_report, generate, parse_since, render_markdown
 
 SINCE = datetime(2026, 8, 1)
 UNTIL = datetime(2026, 8, 8)

@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from sns_collector.db import connect
-from sns_collector.search import search
+from sns_collector.adapter.db import connect
+from sns_collector.adapter.db.semantic_search import search
 
 
 def _fake_embedder(vector):

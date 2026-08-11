@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from sns_collector.hackernews.models import HackerNewsItem
+from sns_collector.adapter.source.hackernews.dto import HackerNewsItem
 
 COLLECTED_AT = datetime(2026, 8, 8, tzinfo=UTC)
 

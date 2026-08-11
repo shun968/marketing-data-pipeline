@@ -269,6 +269,27 @@ def test_収集ログを実行単位へ組み直す(repo: Path) -> None:
     assert log.last_run.finished
 
 
+def test_行末に補足があってもキーワードを取り違えない(repo: Path) -> None:
+    """収集側は接頭辞を `<プラットフォーム>:<キーワード>` の2要素に保つ。
+
+    hnjobs はスレッド名を行末の括弧へ置く（label に入れると3要素になり、
+    キーワード名にスレッド名まで含まれて月ごとに別物として数えられる）。
+    参照: sns-collector/src/sns_collector/domain/collect.py の CollectTask
+    """
+    write(
+        repo / "sns-collector" / "state" / ".logs" / "hnjobs.log",
+        "[2026-08-11T09:00:00+09:00] start: hnjobs\n"
+        '[hnjobs:"robotics"] 取得: 11件 / 新規: 4件 / スキップ: 7件 '
+        "(Ask HN: Who is hiring? (August 2026))\n"
+        "[2026-08-11T09:01:00+09:00] done: hnjobs\n",
+    )
+    summary = reports.keyword_summary(reports.list_collector_logs())
+
+    assert [row["keyword"] for row in summary] == ['"robotics"']
+    assert summary[0]["fetched"] == 11
+    assert summary[0]["added"] == 4
+
+
 # 指摘1の回帰。表示の切り詰めと集計の範囲を同じ定数で決めると、
 # 「累計」と称した値が実測で半分になった（bluesky 11,658 → 5,742）
 def test_集計は表示範囲に切り詰められない(repo: Path) -> None:

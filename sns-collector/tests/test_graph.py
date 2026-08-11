@@ -5,9 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from sns_collector import graph
-from sns_collector.db import connect
-from sns_collector.graph import rebuild
+from sns_collector.adapter.db import connect, graph
+from sns_collector.adapter.db.graph import rebuild
 
 MODEL = "fake-model"
 

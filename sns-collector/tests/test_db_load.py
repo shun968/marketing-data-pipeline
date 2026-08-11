@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from sns_collector.db import (
+from sns_collector.adapter.db import (
     connect,
     current_version,
     insert_records,
@@ -14,7 +14,7 @@ from sns_collector.db import (
     latest_version,
     record_keyword_hits,
 )
-from sns_collector.db.load import load_all, load_platform
+from sns_collector.adapter.db.repository import load_all, load_platform
 from tests.conftest import BLUESKY_RECORD
 
 
