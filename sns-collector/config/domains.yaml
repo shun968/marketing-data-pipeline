@@ -5,6 +5,15 @@
 #   2. 構造化抽出(Phase 2)における `insights.domain` の統制語彙となる
 #      → ここに定義された id 以外を抽出結果に入れてはならない
 #
+# フィールドの意味:
+#   sns_collection  **この基盤で収集しているか**（SNSに限らない。GitHub Issues や
+#                   Hacker News も含む）。false は「収集せず、抽出時の分類先としてのみ使う」。
+#                   どのプラットフォームで収集しているかは note に書く
+#   expected_signal 収集で得られる需要シグナルの期待量。金の流れ(hnjobs)の量ではない
+#   boundary        抽出時に隣接ドメインと取り違えないための境界。**任意フィールド**。
+#                   ここに書いた内容は抽出プロンプトへ渡る（`{domain_guide}`）。
+#                   散文の note は渡らないため、分類に効かせたい区別はこちらへ書く
+#
 # 関連: docs/requirements.md §3 / docs/design.md §3.2
 # 最終更新: 2026-08-11
 
@@ -19,6 +28,7 @@ domains:
     service_candidate: |
       本命。制約下の実効精度を測るベンチマークハーネス、および
       評価設計に関する教材。
+    boundary: ライセンス・法務の問題は含まない（現状の語彙では other へ落ちる）
     sns_collection: true
     expected_signal: 低〜中
     note: |
@@ -56,6 +66,7 @@ domains:
     service_candidate: |
       本命。実効精度ハーネスの主要な適用先。
       「このデバイスで、このレイテンシ予算で、実際に何%出るのか」に答える。
+    boundary: 「推論を動かす」ことの困りごとに限る。推論を伴わない組込み開発は embedded_dev
     sns_collection: true
     expected_signal: 中〜高
     note: |
@@ -90,6 +101,7 @@ domains:
     service_candidate: |
       併走。設計データ + 解説 + 制御コードのDL販売。
       在庫ゼロ・発送ゼロ・サポート最小で制約との相性が最良。
+    boundary: 造形・機構そのもの。ロボットのソフトウェア側は robotics_tooling
     sns_collection: true
     expected_signal: 高
     note: |
@@ -128,6 +140,7 @@ domains:
       未定（仮説検証前）。この領域には既にツールを売る会社がある
       （Foxglove = 可視化、Viam = 統合基盤、Bucket Robotics = CAD→CVモデル）。
       個人開発で入るなら、それらが埋めていない隙間を先に特定する必要がある。
+    boundary: ROS2 / MoveIt / Nav2 / Foxglove 等の道具への不満。AI推論そのものは edge_ai
     sns_collection: true
     expected_signal: 中
     note: |
@@ -152,6 +165,7 @@ domains:
       ボード差異の吸収など。**AI推論は含まない**（それは edge_ai）。
     service_candidate: |
       未定（仮説検証前）。
+    boundary: AI推論を伴うものは edge_ai。ロボット固有の道具は robotics_tooling
     sns_collection: true
     expected_signal: 中
     note: |
@@ -214,6 +228,18 @@ domains:
 #   **エッジ推論の専任求人は125件中6件（実質2件）だった。** edge_ai の
 #   service_candidate（実効精度ハーネス）を単体で売る前提は弱まる。一方で
 #   組込みの求人は29%あり、これは推論の有無によらない領域として分離した。
+#
+#   **語彙を分けた前後で、ドメイン別の件数を比較しないこと。** 分割前の
+#   edge_ai には組込みの内容が混ざっている（当時それしか受け皿が無かった）。
+#   report の「前期間比」はこの断絶を知らないため、edge_ai が語彙の理由で
+#   減ったように見える。keywords.yaml の「比較するときは語の構成を揃える」と
+#   同じ注意が、ドメイン側にも要る。
+#
+#   **Ultralyticsのライセンス問題に対応する語彙は、今回は足さなかった。**
+#   GitHub Issuesで50件観測されたが、これは `"commercial license"` という
+#   キーワードで集めたものであり選択バイアスがある（ai_accuracy の note 参照）。
+#   現状の語彙では other へ落ちる。ライセンスを狙わないキーワードで再現するかを
+#   確かめてから、語彙を足すかを判断する。**先送りであって、見落としではない。**
 #
 #   expected_signal は既存3ドメインとも変更していない。今回の材料は
 #   「金の流れ」であり、SNSでの需要シグナルの期待量を動かす根拠ではない。

@@ -13,6 +13,21 @@ class ConfigError(Exception):
 
 
 @dataclass(frozen=True)
+class Domain:
+    """観測対象ドメイン。`insights.domain` の統制語彙（config/domains.yaml）。
+
+    `boundary` は隣接ドメインとの境界で、抽出プロンプトへ渡る。
+    domains.yaml の `note`（散文）は渡らないため、**分類に効かせたい区別は
+    boundary に書く**。ここが空だと、抽出側はid文字列しか知らないまま
+    `edge_ai` と `embedded_dev` を選ぶことになる。
+    """
+
+    id: str
+    label: str
+    boundary: str | None = None
+
+
+@dataclass(frozen=True)
 class BlueskyConfig:
     sort: str
     limit_per_keyword: int

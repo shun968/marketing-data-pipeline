@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 from ..domain.config import (
     BlueskyConfig,
     ConfigError,
+    Domain,
     GitHubConfig,
     HackerNewsConfig,
     HackerNewsJobsConfig,
@@ -177,17 +178,32 @@ def load_reddit_config(path: Path, env_path: Path | None = None) -> RedditConfig
     )
 
 
-def load_domain_ids(path: Path) -> list[str]:
+def load_domains(path: Path) -> list[Domain]:
     """config/domains.yaml の統制語彙。抽出結果の domain はこの範囲に限る。
 
     ここを読まずに列挙をコード側へ書くと、YAMLとコードの二重管理になる。
     """
     raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    domains = raw.get("domains")
-    if not isinstance(domains, list) or not domains:
+    entries = raw.get("domains")
+    if not isinstance(entries, list) or not entries:
         raise ConfigError(f"domains が空、または配列でない: {path}")
 
-    ids = [d.get("id") for d in domains if isinstance(d, dict)]
-    if not all(isinstance(i, str) and i for i in ids):
-        raise ConfigError(f"id を持たないドメイン定義がある: {path}")
-    return ids
+    domains = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        domain_id = entry.get("id")
+        if not isinstance(domain_id, str) or not domain_id:
+            raise ConfigError(f"id を持たないドメイン定義がある: {path}")
+        domains.append(
+            Domain(
+                id=domain_id,
+                label=str(entry.get("label") or domain_id),
+                boundary=str(entry["boundary"]) if entry.get("boundary") else None,
+            )
+        )
+    return domains
+
+
+def load_domain_ids(path: Path) -> list[str]:
+    return [domain.id for domain in load_domains(path)]

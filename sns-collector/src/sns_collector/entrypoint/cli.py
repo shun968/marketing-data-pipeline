@@ -12,7 +12,7 @@ import duckdb
 
 from ..adapter.config_file import (
     load_bluesky_config,
-    load_domain_ids,
+    load_domains,
     load_github_config,
     load_hackernews_config,
     load_hnjobs_config,
@@ -340,7 +340,7 @@ def _run_extract(args: argparse.Namespace) -> int:
                 print("抽出済みのドメイン別件数:", dict(st["insights_by_domain"]))
             return 0
 
-        domain_ids = load_domain_ids(args.domains)
+        domains = load_domains(args.domains)
 
         if args.extract_command == "prepare":
             result = extract_prepare.prepare(
@@ -348,7 +348,7 @@ def _run_extract(args: argparse.Namespace) -> int:
                 extract_dir,
                 limit=args.limit,
                 version=args.version,
-                domain_ids=domain_ids,
+                domains=domains,
                 platforms=tuple(args.platform) if args.platform else DEFAULT_PLATFORMS,
                 reextract=args.reextract,
                 prompts_dir=args.prompts_dir,
@@ -365,7 +365,7 @@ def _run_extract(args: argparse.Namespace) -> int:
             return 0
 
         result = extract_load.load(
-            conn, extract_dir, args.batch_id, allowed_domains=frozenset(domain_ids)
+            conn, extract_dir, args.batch_id, allowed_domains=frozenset(d.id for d in domains)
         )
         print(f"取り込み: {result.accepted}件 / 拒否: {result.rejected}件")
         if result.embeddings_cleared:

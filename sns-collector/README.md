@@ -318,7 +318,11 @@ uv run sns-collector extract load <batch-id>      # 検証してDBへ
 uv run sns-collector extract status               # 待ち件数・未取り込みバッチ
 ```
 
-**対象は既定でBluesky・Hacker Newsのみ。** YouTubeは供給シグナルであり、動画メタデータへ需要シグナルの抽出を掛けてもほぼ `none` にしかならない。含めるなら `--platform youtube`。
+**対象は既定でBluesky・Hacker Newsのみ。** `github` / `hnjobs` / `reddit` は
+`--platform` の明示指定でしか載らない（ADR-0009・ADR-0010）。**新しいドメインを
+domains.yaml へ足しても、対象プラットフォームを指定しなければ抽出は始まらない。**
+例: `uv run sns-collector extract prepare --platform github --limit 10`。
+GitHub Issueは本文が長いため（中央値1,585字・最大47k字）、`--limit` を小さく取ること。 YouTubeは供給シグナルであり、動画メタデータへ需要シグナルの抽出を掛けてもほぼ `none` にしかならない。
 
 取り出す順は収集日の新しい順。投稿日の古い順だと、初回収集で遡った2009年の動画から処理することになる。
 
