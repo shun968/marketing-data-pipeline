@@ -162,6 +162,39 @@ def from_hackernews(record: dict[str, Any]) -> PostRow:
     )
 
 
+def from_hnjobs(record: dict[str, Any]) -> PostRow:
+    native_id = _required(record, "item_id")
+    keyword = record.get("keyword")
+
+    return PostRow(
+        id=f"hnjobs:{native_id}",
+        platform="hnjobs",
+        native_id=native_id,
+        # HNにはハンドルと別の安定IDが無い。ユーザー名自体が変わらない識別子
+        author_id=record.get("author") or None,
+        author_handle=record.get("author") or None,
+        text=record.get("text", ""),
+        url=record.get("url") or None,
+        # Algolia検索APIは言語を返さない
+        lang=None,
+        posted_at=_parse_timestamp(record.get("created_at")),
+        collected_at=_parse_timestamp(record.get("collected_at")),
+        matched_keywords=[keyword] if isinstance(keyword, str) and keyword else [],
+        # 求人か案件か、発注側か受注側かは分析時の必須の軸。
+        # 平坦化で落とさずここへ残す（seekingを落とすと金の流れを読み違える）
+        metrics=json.dumps(
+            {
+                "thread_id": record.get("thread_id"),
+                "thread_title": record.get("thread_title"),
+                "thread_kind": record.get("thread_kind"),
+                "seeking": record.get("seeking"),
+            },
+            ensure_ascii=False,
+        ),
+        raw=json.dumps(record.get("raw") or record, ensure_ascii=False),
+    )
+
+
 def from_github(record: dict[str, Any]) -> PostRow:
     native_id = _required(record, "issue_id")
     keyword = record.get("keyword")
@@ -232,6 +265,7 @@ ADAPTERS = {
     "bluesky": from_bluesky,
     "youtube": from_youtube,
     "hackernews": from_hackernews,
+    "hnjobs": from_hnjobs,
     "github": from_github,
     "reddit": from_reddit,
 }

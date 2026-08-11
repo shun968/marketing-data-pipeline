@@ -50,6 +50,21 @@ HACKERNEWS_RECORD = {
     "raw": {"objectID": "49217777", "_tags": ["comment"]},
 }
 
+HNJOBS_RECORD = {
+    "item_id": "49175131",
+    "keyword": "embedded",
+    "text": "Ask HN: Who is hiring? (August 2026)\nBrightcore Energy | Embedded Engineer",
+    "thread_id": "49156683",
+    "thread_title": "Ask HN: Who is hiring? (August 2026)",
+    "thread_kind": "hiring",
+    "seeking": None,
+    "author": "bzimm",
+    "created_at": "2026-08-05T12:00:00Z",
+    "url": "https://news.ycombinator.com/item?id=49175131",
+    "collected_at": "2026-08-11T00:00:00+00:00",
+    "raw": {"objectID": "49175131", "parent_id": 49156683},
+}
+
 GITHUB_RECORD = {
     "issue_id": "2345678901",
     "keyword": "collision avoidance",

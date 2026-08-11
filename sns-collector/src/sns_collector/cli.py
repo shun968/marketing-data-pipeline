@@ -19,6 +19,7 @@ from .common.config import (
     load_domain_ids,
     load_github_config,
     load_hackernews_config,
+    load_hnjobs_config,
     load_reddit_config,
     load_youtube_config,
 )
@@ -26,6 +27,7 @@ from .db import connect, current_version, database_path, latest_version, load_al
 from .extract.prepare import DEFAULT_PLATFORMS
 from .github import search as github_search
 from .hackernews import search as hackernews_search
+from .hnjobs import search as hnjobs_search
 from .keyword_quality import compute_keyword_stats
 from .reddit import search as reddit_search
 from .youtube import search as youtube_search
@@ -47,6 +49,8 @@ COLLECTORS = {
     "bluesky": (bluesky_search, load_bluesky_config),
     "youtube": (youtube_search, load_youtube_config),
     "hackernews": (hackernews_search, load_hackernews_config),
+    # 需要シグナル(困りごと)ではなく、金の流れを見る。役割が違うため別コマンドにする
+    "hnjobs": (hnjobs_search, load_hnjobs_config),
     "github": (github_search, load_github_config),
     "reddit": (reddit_search, load_reddit_config),
 }
@@ -70,7 +74,8 @@ def _bool_arg(value: str) -> bool:
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "SNS(Bluesky/YouTube/Hacker News/GitHub/Reddit)を検索して収集し、"
+            "SNS(Bluesky/YouTube/Hacker News/GitHub/Reddit)と"
+            "Hacker Newsの求人・案件スレッド(hnjobs)を検索して収集し、"
             "DuckDBの分析ストアへ取り込む"
         )
     )

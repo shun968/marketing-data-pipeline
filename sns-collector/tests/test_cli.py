@@ -15,6 +15,8 @@ youtube:
   keywords: ["語"]
 hackernews:
   keywords: ["語"]
+hnjobs:
+  keywords: ["語"]
 github:
   keywords: ["語"]
 reddit:

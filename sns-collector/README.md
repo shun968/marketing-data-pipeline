@@ -1,6 +1,6 @@
 # sns-collector
 
-潜在的な新規事業開拓のための分析材料として、Bluesky・YouTube・Hacker News・GitHub・Redditのキーワード検索データを定期収集するツール。
+潜在的な新規事業開拓のための分析材料として、Bluesky・YouTube・Hacker News・GitHub・Redditのキーワード検索データと、Hacker Newsの求人・案件スレッド（hnjobs）を定期収集するツール。
 
 収集データ・状態ファイルは常にローカルディスクにのみ保存され、GitHub等の外部には一切送信・コミットされない（`.gitignore`済み）。
 
@@ -115,6 +115,7 @@ uv run sns-collector youtube
 
 - **Bluesky・Hacker News・GitHub・Reddit = 需要シグナル**。投稿本文・コメント・Issue・スレッドを検索し、未充足ニーズや不満の生の表現を拾う
 - **YouTube = 供給シグナル**。動画のタイトル・説明文しか検索できないため、痛みを表す語（「面倒」「使いにくい」等）はほぼヒットしない。既存ソリューション・競合・市場の関心度の測定に用途を限定する
+- **hnjobs = 金の流れシグナル**（ADR-0010）。Hacker Newsの月次求人・案件スレッドから、企業・発注者が実際に予算を付けている領域を測る。**求人票に困りごと表現は含まれない。** 痛みを表す語を投げないこと
 
 観測対象ドメインとその仮説は`config/domains.yaml`に定義する。設計の背景は`docs/requirements.md`を参照。
 
@@ -151,9 +152,27 @@ reddit:
   limit_per_keyword: 50
   keywords:
     - "jetson inference slow"
+
+hnjobs:
+  thread_kinds: ["hiring", "freelancer"] # hired(求職)は金を出す側ではないため既定で採らない
+  thread_limit: 3 # 種別ごとの遡り月数
+  hits_per_page: 50
+  keywords:
+    - '"embedded"'
 ```
 
-**GitHub・Redditのキーワードはまだ実データで検証していない。** 他プラットフォームと同様、`sns_collector.github.client.search_issues` / `sns_collector.reddit.client.search_posts`（Redditはトークン取得が要るため`sns_collector.reddit.auth.fetch_token`と組み合わせる）を認証情報だけ用意してDB非破壊で試し打ちし、キーワード設計の3原則（下記）に照らして確認してから`cron_run.sh`へ登録すること。
+`hnjobs`だけは検索の当て方が違う。**キーワードで全文検索するのではなく、月次スレッドを特定してからその中を検索する。** 主催アカウントでスレッドを引き、タイトルで種別（求人 / 案件 / 求職）を分け、スレッド直下のコメントだけを求人票として採る。返信は議論なので採らない。
+
+**`hnjobs`のキーワードは事前確認のみ済み**（2026-08-11、検索APIで求人3本・案件3本へ問い合わせ）。収集データでの検証は初回収集後に行う。試し打ちには`sns_collector.hnjobs.client.list_threads` / `search_thread`を使う（認証不要・DB非破壊）。**その際、Algoliaの既定のタイプミス吸収を切ること**（`typoTolerance=false`）。切らないと短い語が別語へ広がり、`"cnc"`が13件ヒットして中身は全て無関係、という形の誤検知が出る。収集側（`hnjobs/client.py`）では無効化済み。
+
+**Redditのキーワードはまだ検証していない。** 他プラットフォームと同様、`sns_collector.reddit.client.search_posts`（トークン取得が要るため`sns_collector.reddit.auth.fetch_token`と組み合わせる）でDB非破壊に試し打ちし、キーワード設計の3原則（下記）に照らして確認してから`cron_run.sh`へ登録すること。
+
+**GitHubのキーワードには、他プラットフォームに無い制約が2つある**（2026-08-11の事前確認で判明。詳細と実測値は`config/keywords.yaml`の改訂履歴）。
+
+1. **`org:` / `repo:` で必ず限定する。** 限定しない検索はAI生成のダイジェストリポジトリが支配する（無限定の`ros2 "hard to debug"`は30件中26件が単一リポジトリだった）
+2. **取得件数ではなく母集団（`total_count`）で判定する。** `per_page`の上限まで常に返るため、フレーズ絞り込みが効いていても件数は張り付いて見分けが付かない。目安は20〜300件
+
+試し打ちには`sns_collector.github.client.search_issues`を使う（トークン未設定でも動く）。`total_count`が要るときは`common/http.py::get_json`で直接叩く。
 
 ### キーワード設計の3原則
 
@@ -254,6 +273,7 @@ uv run sns-collector youtube
 uv run sns-collector hackernews
 uv run sns-collector github
 uv run sns-collector reddit
+uv run sns-collector hnjobs
 ```
 
 ## 分析ストア（DuckDB）
@@ -427,7 +447,7 @@ cp data/analysis.duckdb data/analysis.duckdb.$(date +%Y%m%d)
 
 ## 出力
 
-`data/{bluesky,youtube,hackernews,github,reddit}/<YYYY-MM-DD>.jsonl`に1行1JSONで追記される（同日内の複数回実行は同一ファイルに追記）。
+`data/{bluesky,youtube,hackernews,hnjobs,github,reddit}/<YYYY-MM-DD>.jsonl`に1行1JSONで追記される（同日内の複数回実行は同一ファイルに追記）。
 
 run跨ぎの重複を避けるため、収集した投稿は同時に`data/analysis.duckdb`の`posts`へ書き込まれ、次回以降はそこを既知判定に使う（[分析ストア](#分析ストアduckdb)を参照）。同じキーワードで再実行しても、既に収集済みの投稿・動画は再度JSONLに書き込まれない。
 
