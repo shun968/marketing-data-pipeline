@@ -13,6 +13,7 @@ from sns_collector.adapter.db.extract_prepare import (
     prepare,
     reopen_for_reextraction,
 )
+from sns_collector.domain.config import Domain
 from sns_collector.domain.insight import ValidationError, validate
 from tests.conftest import BLUESKY_RECORD, YOUTUBE_RECORD
 
@@ -23,6 +24,13 @@ def test_抽出の既定対象にgithubとredditを含めない():
 
 
 DOMAINS = frozenset({"ai_accuracy", "edge_ai", "fabrication", "other"})
+
+
+def _domains() -> list[Domain]:
+    """統制語彙。prepare は id だけでなく label / boundary も受け取る
+    （抽出プロンプトへ境界を渡すため。ADR-0011以降の domains.yaml）。"""
+    return [Domain(id=d, label=d) for d in sorted(DOMAINS)]
+
 
 VALID = {
     "post_id": "bluesky:at://did:plc:abc/app.bsky.feed.post/xyz",
@@ -107,7 +115,7 @@ def prepared(tmp_path: Path):
             tmp_path / "extract",
             limit=10,
             version="v1",
-            domain_ids=sorted(DOMAINS),
+            domains=_domains(),
             now=datetime(2026, 8, 4, 12, 0, tzinfo=UTC),
         )
         yield conn, tmp_path / "extract", result
@@ -138,7 +146,13 @@ def test_prepareはバッチと作業指示を書き状態を進める(prepared)
 def test_prepareは対象が無ければNoneを返す(tmp_path: Path):
     with connect(tmp_path / "analysis.duckdb") as conn:
         assert (
-            prepare(conn, tmp_path / "extract", limit=10, version="v1", domain_ids=["other"])
+            prepare(
+                conn,
+                tmp_path / "extract",
+                limit=10,
+                version="v1",
+                domains=[Domain(id="other", label="other")],
+            )
             is None
         )
 
@@ -146,7 +160,12 @@ def test_prepareは対象が無ければNoneを返す(tmp_path: Path):
 def test_batchedの投稿は次のバッチに入らない(prepared):
     """二重にバッチへ載せると、同じ投稿を2回抽出することになる。"""
     conn, extract_dir, _ = prepared
-    assert prepare(conn, extract_dir, limit=10, version="v1", domain_ids=["other"]) is None
+    assert (
+        prepare(
+            conn, extract_dir, limit=10, version="v1", domains=[Domain(id="other", label="other")]
+        )
+        is None
+    )
 
 
 def test_loadは検証を通った行だけ入れる(prepared):
@@ -308,9 +327,7 @@ def test_既定ではYouTubeをバッチに載せない(tmp_path: Path):
             [_post("b1", "bluesky", "2026-08-04T00:00:00+00:00", "2026-08-01T00:00:00Z")],
         )
 
-        result = prepare(
-            conn, tmp_path / "extract", limit=10, version="v1", domain_ids=sorted(DOMAINS)
-        )
+        result = prepare(conn, tmp_path / "extract", limit=10, version="v1", domains=_domains())
 
         assert result.post_count == 1
         ids = [json.loads(x)["id"] for x in result.batch_path.read_text().splitlines()]
@@ -330,7 +347,7 @@ def test_platform指定でYouTubeも載せられる(tmp_path: Path):
             tmp_path / "extract",
             limit=10,
             version="v1",
-            domain_ids=sorted(DOMAINS),
+            domains=_domains(),
             platforms=("youtube",),
         )
 
@@ -357,9 +374,7 @@ def test_新しく収集したものから出す(tmp_path: Path):
             ],
         )
 
-        result = prepare(
-            conn, tmp_path / "extract", limit=1, version="v1", domain_ids=sorted(DOMAINS)
-        )
+        result = prepare(conn, tmp_path / "extract", limit=1, version="v1", domains=_domains())
 
         ids = [json.loads(x)["id"] for x in result.batch_path.read_text().splitlines()]
         assert ids == ["bluesky:new_collect"], "収集が新しいものが先に来ていない"
@@ -383,7 +398,7 @@ def test_本文の無い投稿はskippedへ落とす(tmp_path: Path):
             ],
         )
 
-        prepare(conn, tmp_path / "extract", limit=10, version="v1", domain_ids=sorted(DOMAINS))
+        prepare(conn, tmp_path / "extract", limit=10, version="v1", domains=_domains())
 
         assert status(conn)["posts"] == {"batched": 1, "skipped": 1}
 
@@ -393,7 +408,13 @@ def test_本文が無い投稿しか無ければバッチを作らない(tmp_pat
         insert_records(conn, "bluesky", [{**BLUESKY_RECORD, "post_id": "empty", "text": ""}])
 
         assert (
-            prepare(conn, tmp_path / "extract", limit=10, version="v1", domain_ids=["other"])
+            prepare(
+                conn,
+                tmp_path / "extract",
+                limit=10,
+                version="v1",
+                domains=[Domain(id="other", label="other")],
+            )
             is None
         )
         assert status(conn)["posts"] == {"skipped": 1}
@@ -414,7 +435,7 @@ def test_prompts_dirを指定すると別ディレクトリのプロンプトを
             extract_dir,
             limit=10,
             version="v1",
-            domain_ids=["other"],
+            domains=[Domain(id="other", label="other")],
             prompts_dir=prompts_dir,
         )
 
@@ -439,7 +460,13 @@ def test_存在しないプロンプト版ではファイルを1つも書かな�
         insert_records(conn, "bluesky", [BLUESKY_RECORD])
 
         with pytest.raises(FileNotFoundError, match="利用できる版"):
-            prepare(conn, extract_dir, limit=10, version="v99", domain_ids=["other"])
+            prepare(
+                conn,
+                extract_dir,
+                limit=10,
+                version="v99",
+                domains=[Domain(id="other", label="other")],
+            )
 
         assert not extract_dir.exists() or list(extract_dir.iterdir()) == []
         assert conn.execute("SELECT extraction_status FROM posts").fetchone()[0] == "pending"
@@ -475,7 +502,7 @@ def test_台帳登録が失敗したら投稿の状態も戻す(tmp_path: Path):
                 tmp_path / "extract",
                 limit=10,
                 version="v2",
-                domain_ids=["other"],
+                domains=[Domain(id="other", label="other")],
             )
 
         assert conn.execute("SELECT extraction_status FROM posts").fetchone()[0] == "pending", (
@@ -492,7 +519,7 @@ def test_platformsが空なら早期に拒否する(tmp_path: Path):
                 tmp_path / "extract",
                 limit=10,
                 version="v1",
-                domain_ids=["other"],
+                domains=[Domain(id="other", label="other")],
                 platforms=(),
             )
 
@@ -502,13 +529,13 @@ def test_reextractで旧版の投稿をpendingへ戻す(tmp_path: Path):
     extract_dir = tmp_path / "extract"
     with connect(tmp_path / "analysis.duckdb") as conn:
         insert_records(conn, "bluesky", [BLUESKY_RECORD])
-        first = prepare(conn, extract_dir, limit=10, version="v1", domain_ids=sorted(DOMAINS))
+        first = prepare(conn, extract_dir, limit=10, version="v1", domains=_domains())
         _write_result(extract_dir, first.batch_id, [_valid()])
         load(conn, extract_dir, first.batch_id, allowed_domains=DOMAINS)
         assert conn.execute("SELECT extraction_status FROM posts").fetchone()[0] == "done"
 
         second = prepare(
-            conn, extract_dir, limit=10, version="v2", domain_ids=sorted(DOMAINS), reextract="v1"
+            conn, extract_dir, limit=10, version="v2", domains=_domains(), reextract="v1"
         )
 
         assert second is not None, "v1で抽出済みの投稿が再バッチに載っていない"
@@ -521,11 +548,16 @@ def test_該当しない版を指定しても既存の状態を壊さない(tmp_
     extract_dir = tmp_path / "extract"
     with connect(tmp_path / "analysis.duckdb") as conn:
         insert_records(conn, "bluesky", [BLUESKY_RECORD])
-        prepare(conn, extract_dir, limit=10, version="v2", domain_ids=sorted(DOMAINS))
+        prepare(conn, extract_dir, limit=10, version="v2", domains=_domains())
 
         assert (
             prepare(
-                conn, extract_dir, limit=10, version="v2", domain_ids=["other"], reextract="v99"
+                conn,
+                extract_dir,
+                limit=10,
+                version="v2",
+                domains=[Domain(id="other", label="other")],
+                reextract="v99",
             )
             is None
         )
@@ -543,10 +575,20 @@ def test_同じ秒に2回prepareしても衝突しない(tmp_path: Path):
         )
 
         a = prepare(
-            conn, tmp_path / "extract", limit=1, version="v2", domain_ids=["other"], now=fixed
+            conn,
+            tmp_path / "extract",
+            limit=1,
+            version="v2",
+            domains=[Domain(id="other", label="other")],
+            now=fixed,
         )
         b = prepare(
-            conn, tmp_path / "extract", limit=1, version="v2", domain_ids=["other"], now=fixed
+            conn,
+            tmp_path / "extract",
+            limit=1,
+            version="v2",
+            domains=[Domain(id="other", label="other")],
+            now=fixed,
         )
 
         assert a.batch_id != b.batch_id
@@ -562,7 +604,7 @@ def test_バッチが作られなければ再抽出の状態変更も巻き戻�
     extract_dir = tmp_path / "extract"
     with connect(tmp_path / "analysis.duckdb") as conn:
         insert_records(conn, "bluesky", [BLUESKY_RECORD])
-        first = prepare(conn, extract_dir, limit=10, version="v1", domain_ids=sorted(DOMAINS))
+        first = prepare(conn, extract_dir, limit=10, version="v1", domains=_domains())
         _write_result(extract_dir, first.batch_id, [_valid()])
         load(conn, extract_dir, first.batch_id, allowed_domains=DOMAINS)
         assert conn.execute("SELECT extraction_status FROM posts").fetchone()[0] == "done"
@@ -572,7 +614,7 @@ def test_バッチが作られなければ再抽出の状態変更も巻き戻�
             extract_dir,
             limit=10,
             version="v2",
-            domain_ids=sorted(DOMAINS),
+            domains=_domains(),
             platforms=("youtube",),
             reextract="v1",
         )
@@ -589,7 +631,13 @@ def test_バッチが作られなくても本文の無い投稿はskippedのま�
         insert_records(conn, "bluesky", [{**BLUESKY_RECORD, "post_id": "empty", "text": ""}])
 
         assert (
-            prepare(conn, tmp_path / "extract", limit=10, version="v2", domain_ids=["other"])
+            prepare(
+                conn,
+                tmp_path / "extract",
+                limit=10,
+                version="v2",
+                domains=[Domain(id="other", label="other")],
+            )
             is None
         )
         assert status(conn)["posts"] == {"skipped": 1}
@@ -600,7 +648,7 @@ def test_再抽出の戻り値は実際に状態が変わった件数(tmp_path: 
     extract_dir = tmp_path / "extract"
     with connect(tmp_path / "analysis.duckdb") as conn:
         insert_records(conn, "bluesky", [BLUESKY_RECORD])
-        first = prepare(conn, extract_dir, limit=10, version="v1", domain_ids=sorted(DOMAINS))
+        first = prepare(conn, extract_dir, limit=10, version="v1", domains=_domains())
         _write_result(extract_dir, first.batch_id, [_valid()])
         load(conn, extract_dir, first.batch_id, allowed_domains=DOMAINS)
 
@@ -625,7 +673,7 @@ def test_reopen_for_reextractionは対象外プラットフォームを戻さな
             extract_dir,
             limit=10,
             version="v1",
-            domain_ids=sorted(DOMAINS),
+            domains=_domains(),
             platforms=("bluesky", "youtube"),
         )
         _write_result(
@@ -656,7 +704,7 @@ def test_reextract指定時は対象をその版に限る(tmp_path: Path):
             "bluesky",
             [{**BLUESKY_RECORD, "post_id": "old", "collected_at": "2026-08-01T00:00:00+00:00"}],
         )
-        first = prepare(conn, extract_dir, limit=10, version="v1", domain_ids=sorted(DOMAINS))
+        first = prepare(conn, extract_dir, limit=10, version="v1", domains=_domains())
         _write_result(extract_dir, first.batch_id, [_valid(post_id="bluesky:old")])
         load(conn, extract_dir, first.batch_id, allowed_domains=DOMAINS)
         insert_records(
@@ -666,7 +714,7 @@ def test_reextract指定時は対象をその版に限る(tmp_path: Path):
         )
 
         result = prepare(
-            conn, extract_dir, limit=10, version="v2", domain_ids=sorted(DOMAINS), reextract="v1"
+            conn, extract_dir, limit=10, version="v2", domains=_domains(), reextract="v1"
         )
 
         ids = [json.loads(x)["id"] for x in result.batch_path.read_text().splitlines()]
@@ -682,20 +730,66 @@ def test_未取り込みバッチの投稿は再抽出で引き抜かない(tmp_
     extract_dir = tmp_path / "extract"
     with connect(tmp_path / "analysis.duckdb") as conn:
         insert_records(conn, "bluesky", [BLUESKY_RECORD])
-        first = prepare(conn, extract_dir, limit=5, version="v1", domain_ids=["other"])
+        first = prepare(
+            conn, extract_dir, limit=5, version="v1", domains=[Domain(id="other", label="other")]
+        )
         _write_result(extract_dir, first.batch_id, [_valid()])
         load(conn, extract_dir, first.batch_id, allowed_domains=DOMAINS)
 
         second = prepare(
-            conn, extract_dir, limit=5, version="v2", domain_ids=["other"], reextract="v1"
+            conn,
+            extract_dir,
+            limit=5,
+            version="v2",
+            domains=[Domain(id="other", label="other")],
+            reextract="v1",
         )
         assert second is not None
 
         # second を取り込まないまま、もう一度 --reextract v1 を叩く
         third = prepare(
-            conn, extract_dir, limit=5, version="v2", domain_ids=["other"], reextract="v1"
+            conn,
+            extract_dir,
+            limit=5,
+            version="v2",
+            domains=[Domain(id="other", label="other")],
+            reextract="v1",
         )
 
         assert third is None, "未取り込みバッチの投稿が引き抜かれている"
         unloaded = [b[0] for b in status(conn)["unloaded_batches"]]
         assert unloaded == [second.batch_id]
+
+
+def test_抽出指示にドメインの境界が埋め込まれる(tmp_path: Path):
+    """id の羅列だけでは、隣接する語彙を取り違える。
+
+    `edge_ai` と `embedded_dev` の区別は domains.yaml の note（散文）にあるが、
+    それは抽出セッションへ渡らない。境界は `boundary` として構造化し、
+    プロンプトの `{domain_guide}` へ埋める（issue #71）。
+    """
+    prompts_dir = tmp_path / "prompts"
+    prompts_dir.mkdir()
+    (prompts_dir / "extract-v9.md").write_text(
+        "選択肢: {domain_ids}\n\n{domain_guide}\n", encoding="utf-8"
+    )
+
+    with connect(tmp_path / "analysis.duckdb") as conn:
+        insert_records(conn, "bluesky", [BLUESKY_RECORD])
+        result = prepare(
+            conn,
+            tmp_path / "extract",
+            limit=10,
+            version="v9",
+            domains=[
+                Domain(id="edge_ai", label="エッジ推論", boundary="組込み一般は embedded_dev"),
+                Domain(id="other", label="該当なし"),
+            ],
+            prompts_dir=prompts_dir,
+        )
+
+    assert result is not None
+    text = result.instruction_path.read_text(encoding="utf-8")
+    assert "選択肢: edge_ai | other" in text
+    assert "- `edge_ai` — エッジ推論。組込み一般は embedded_dev" in text
+    assert "- `other` — 該当なし" in text, "boundary が無いドメインも一覧に出す"

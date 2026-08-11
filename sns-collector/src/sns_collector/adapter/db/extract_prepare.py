@@ -14,6 +14,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from ...domain.config import Domain
 from ..jsonl import write_jsonl
 
 if TYPE_CHECKING:  # pragma: no cover - 型注釈のためだけに読む
@@ -47,6 +48,22 @@ def _batch_id(conn: duckdb.DuckDBPyConnection, now: datetime) -> tuple[str, date
         if exists is None:
             return candidate, now
         now = now + timedelta(seconds=1)
+
+
+def _domain_guide(domains: list[Domain]) -> str:
+    """統制語彙を、抽出セッションが読める形の一覧にする。
+
+    **id の羅列だけでは分類できない。** `edge_ai` と `embedded_dev` のように
+    隣接する語彙は、境界を渡さないとバッチごとに揺れる。
+    境界は domains.yaml の `boundary`（任意フィールド）から来る。
+    """
+    lines = []
+    for domain in domains:
+        line = f"- `{domain.id}` — {domain.label}"
+        if domain.boundary:
+            line += f"。{domain.boundary}"
+        lines.append(line)
+    return "\n".join(lines)
 
 
 def prompt_path(version: str, prompts_dir: Path | None = None) -> Path:
@@ -160,7 +177,7 @@ def prepare(
     *,
     limit: int,
     version: str,
-    domain_ids: list[str],
+    domains: list[Domain],
     platforms: tuple[str, ...] | list[str] = DEFAULT_PLATFORMS,
     reextract: str | None = None,
     now: datetime | None = None,
@@ -198,7 +215,7 @@ def prepare(
             limit=limit,
             version=version,
             template=template,
-            domain_ids=domain_ids,
+            domains=domains,
             platforms=platforms,
             reextract=reextract,
             batch_id=batch_id,
@@ -216,7 +233,7 @@ def _prepare_in_transaction(
     limit: int,
     version: str,
     template: str,
-    domain_ids: list[str],
+    domains: list[Domain],
     platforms: tuple[str, ...] | list[str],
     reextract: str | None,
     batch_id: str,
@@ -284,7 +301,8 @@ def _prepare_in_transaction(
     instruction_path.write_text(
         template.replace("{batch_jsonl}", str(batch_path))
         .replace("{result_jsonl}", str(result_path))
-        .replace("{domain_ids}", " | ".join(domain_ids)),
+        .replace("{domain_ids}", " | ".join(d.id for d in domains))
+        .replace("{domain_guide}", _domain_guide(domains)),
         encoding="utf-8",
     )
 

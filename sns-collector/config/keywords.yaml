@@ -220,11 +220,10 @@ github:
   #
   # 行末の [実測] は2026-08-11時点の total_count。
   keywords:
-    # ── ロボティクス開発ツール ─────────────────────────────────────────
-    # **このドメインは config/domains.yaml に存在しない。** hnjobsの実測で
-    # 求人の32%を占めた最大領域だが、統制語彙が無いため抽出時は other へ落ちる。
-    # domains.yaml の改訂が要る（統制語彙の変更は抽出結果との互換に関わるため、
-    # キーワード追加とは分けて判断する）
+    # ── ロボティクス開発ツール (domain: robotics_tooling) ───────────────
+    # hnjobsの実測で求人の32%を占めた最大領域。2026-08-11にドメインを追加した
+    # （issue #71）。**収集はこのgithubセクションが主**で、Bluesky・Hacker News
+    # のキーワードは持たない。開発者は困りごとを本家リポジトリのIssueへ書く
     - 'org:ros2 "hard to debug"' # [実測] 20
     - 'org:ros2 "not documented"' # [実測] 71
     - 'org:ros2 "too slow"' # [実測] 16
@@ -232,7 +231,9 @@ github:
     - 'repo:moveit/moveit2 "too slow"' # [実測] 8。少ないが的確
     - 'org:foxglove "would be nice"' # [実測] 85。ロボティクス向け可視化ツール
 
-    # ── 組込み開発 (求人29%。domains.yaml の edge_ai より広い) ──────────
+    # ── 組込み開発 (domain: embedded_dev。求人29%) ──────────────────────
+    # edge_ai とは別。あちらは「制約ハードで推論を動かす」困りごとで、
+    # こちらは推論の有無によらない組込み開発そのもの
     - 'org:zephyrproject-rtos "hard to debug"' # [実測] 58
     - 'org:espressif "hard to debug"' # [実測] 102
     - 'org:espressif "documentation is confusing"' # [実測] 21
@@ -300,6 +301,7 @@ github:
 #   hnjobsの実測では求人の32%を占める最大領域であり、6キーワードを充てたが、
 #   現状の統制語彙では抽出時に other へ落ちる。domains.yaml の改訂が要る。
 #   統制語彙の変更は既存の抽出結果との互換に関わるため、本改訂には含めない。
+#   → 2026-08-11、issue #71 で robotics_tooling / embedded_dev を追加して解消。
 #
 # 2026-08-11 hnjobsキーワードの初版 (9件、ADR-0010)
 #   Algolia検索API(認証不要)での事前確認。収集データでの検証は初回収集後に行う。
