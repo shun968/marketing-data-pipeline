@@ -9,6 +9,7 @@ from sns_collector.db.adapters import (
     from_bluesky,
     from_github,
     from_hackernews,
+    from_hnjobs,
     from_reddit,
     from_youtube,
 )
@@ -16,6 +17,7 @@ from tests.conftest import (
     BLUESKY_RECORD,
     GITHUB_RECORD,
     HACKERNEWS_RECORD,
+    HNJOBS_RECORD,
     REDDIT_RECORD,
     YOUTUBE_RECORD,
 )
@@ -84,6 +86,36 @@ def test_hackernewsのmetricsにitem_typeとstory_idを含める():
         "item_type": "comment",
         "story_id": "49216362",
     }
+
+
+def test_hnjobsのidはプラットフォーム接頭辞を持つ():
+    row = from_hnjobs(HNJOBS_RECORD)
+    assert row.id == "hnjobs:49175131"
+    assert row.platform == "hnjobs"
+    assert row.native_id == HNJOBS_RECORD["item_id"]
+
+
+def test_hnjobsのmetricsにスレッド種別と発注受注の別を含める():
+    """求人か案件か・発注側か受注側かは分析時の必須の軸。
+
+    平坦化でここを落とすと後から復元できず、受注者の売り込みを
+    「案件がある」と数える読み違えが起きる。
+    """
+    row = from_hnjobs({**HNJOBS_RECORD, "seeking": "work"})
+    assert json.loads(row.metrics)["seeking"] == "work"
+
+    row = from_hnjobs(HNJOBS_RECORD)
+    metrics = json.loads(row.metrics)
+    assert metrics["seeking"] is None
+    assert metrics["thread_kind"] == "hiring"
+    assert metrics["thread_id"] == "49156683"
+    assert metrics["thread_title"] == "Ask HN: Who is hiring? (August 2026)"
+
+
+def test_hnjobsはitem_idを欠く行を捨てる():
+    broken = {k: v for k, v in HNJOBS_RECORD.items() if k != "item_id"}
+    with pytest.raises(AdapterError):
+        from_hnjobs(broken)
 
 
 def test_githubのidはプラットフォーム接頭辞を持つ():

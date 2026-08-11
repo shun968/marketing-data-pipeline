@@ -9,11 +9,13 @@ from typing import Any
 _TAG_RE = re.compile(r"<[^>]+>")
 
 
-def _clean_html(value: Any) -> str | None:
+def clean_html(value: Any) -> str | None:
     """AlgoliaのHTML断片(<p>やHTMLエンティティ)をプレーンテキストへ。
 
     story_text / comment_text はコメント投稿時のHTMLをそのまま含む。
     タグを残すと本文の判定・要約に無関係なノイズになる。
+
+    hnjobs も同じAlgolia APIを読むため、この関数を共有する。
     """
     if not isinstance(value, str) or not value:
         return None
@@ -47,7 +49,7 @@ class HackerNewsItem:
         # 文脈として text に含める。無いとコメント単体では何の話か分からない
         title = hit.get("title") or None
         topic = title or hit.get("story_title") or None
-        body = _clean_html(hit.get("story_text")) or _clean_html(hit.get("comment_text"))
+        body = clean_html(hit.get("story_text")) or clean_html(hit.get("comment_text"))
         text = "\n".join(part for part in (topic, body) if part)
 
         story_id = hit.get("story_id")

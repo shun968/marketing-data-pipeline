@@ -37,6 +37,14 @@ class HackerNewsConfig:
 
 
 @dataclass(frozen=True)
+class HackerNewsJobsConfig:
+    thread_kinds: list[str]
+    thread_limit: int
+    hits_per_page: int
+    keywords: list[str]
+
+
+@dataclass(frozen=True)
 class GitHubConfig:
     token: str | None
     qualifiers: str
@@ -106,6 +114,23 @@ def load_hackernews_config(path: Path) -> HackerNewsConfig:
         # Algoliaのtagsは括弧が無いとAND(=story かつ comment を同時に満たす、
         # 常に0件)になる。"(story,comment)"のようにOR対象を括弧で囲む必要がある
         tags=raw.get("tags", "(story,comment)"),
+        hits_per_page=int(raw.get("hits_per_page", 50)),
+        keywords=list(keywords),
+    )
+
+
+def load_hnjobs_config(path: Path) -> HackerNewsJobsConfig:
+    raw = _load_keywords_file(path).get("hnjobs", {})
+    keywords = raw.get("keywords", [])
+    if not keywords:
+        raise ConfigError(f"{path} に hnjobs.keywords が定義されていません。")
+
+    return HackerNewsJobsConfig(
+        # 既定は求人と案件のみ。求職スレッド(hired)は「金を出す側」ではないため採らない。
+        # 値の妥当性は hnjobs/search.py が run の冒頭で検査する
+        # (ここで検査すると common が上位モジュールを import することになる)
+        thread_kinds=list(raw.get("thread_kinds", ["hiring", "freelancer"])),
+        thread_limit=int(raw.get("thread_limit", 4)),
         hits_per_page=int(raw.get("hits_per_page", 50)),
         keywords=list(keywords),
     )
