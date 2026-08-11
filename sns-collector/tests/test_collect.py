@@ -90,6 +90,34 @@ def test_同一run内の重複は1度しか保存しない():
     assert summary.total_new == 1
 
 
+def test_同じ応答に重複があっても記録を水増ししない():
+    """1タスクの応答内での重複は、同じ語なので matched_keywords へ足す必要が無い。"""
+    store = FakeStore()
+
+    collect([_task("t", [{"id": "a"}, {"id": "a"}])], store.ports())
+
+    assert [r["id"] for r in store.saved] == ["a"]
+    assert store.hits == [([], "kw")]
+
+
+def test_前のタスクで採った投稿も別の語で見つかれば記録する():
+    """同一run内で先に収集した投稿が、後のタスクの語でも見つかることがある。
+
+    ここを取りこぼすと `matched_keywords` からその語が落ち、
+    `keywords quality` の件数が実際より少なくなる。
+    """
+    store = FakeStore()
+    tasks = [
+        _task("t1", [{"id": "a"}], keyword="kw1"),
+        _task("t2", [{"id": "a"}], keyword="kw2"),
+    ]
+
+    collect(tasks, store.ports())
+
+    assert [r["id"] for r in store.saved] == ["a"], "2度保存してはいけない"
+    assert store.hits == [([], "kw1"), (["a"], "kw2")]
+
+
 def test_JSONLを書いてからDBへ入れる():
     """逆順にすると、書き込み前に落ちた投稿を二度と収集できなくなる。
 

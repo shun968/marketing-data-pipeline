@@ -66,12 +66,18 @@ def collect(tasks: list[CollectTask], ports: CollectPorts, *, unit: str = "投�
                 excluded_count += 1
                 continue
 
-            if record.native_id in run_seen:
-                skip_count += 1
-                continue
+            # **既知かどうかを先に見る。** 逆順にすると、同じ投稿がこの run の
+            # 前のタスクで収集済みだったとき known_hits へ入らず、
+            # そのキーワードが matched_keywords から落ちる（どの語が効いたかの
+            # 集計が実際より少なくなる）。seen はタスクの保存ごとに広がるため、
+            # 「前のタスクで採った」も「DBに元からあった」もここで拾える
             if record.native_id in seen:
                 # JSONLには書かないが、この語でも見つかった事実はDBへ残す
                 known_hits.append(record.native_id)
+                skip_count += 1
+                continue
+            # 同じタスクの応答内での重複。保存はまだなので seen には無い
+            if record.native_id in run_seen:
                 skip_count += 1
                 continue
             run_seen.add(record.native_id)

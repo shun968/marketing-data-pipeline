@@ -85,6 +85,24 @@ write "usecase/collect.py" "from requests import Session"
 assert_exit 1 "from形式の外部ライブラリも止める"
 teardown
 
+# __init__.py は自分自身がパッケージであり、相対importの基点が1つ深い。
+# ここを間違えると、収集元どうしの依存を素通しにする(PR #70 のレビュー指摘)
+setup
+write "adapter/source/alpha/__init__.py" "from ..beta.dto import clean"
+assert_exit 1 "__init__.py に置いた収集元どうしの import も止める"
+teardown
+
+# import の書き方を変えるだけで規則を迂回できてはならない
+setup
+write "usecase/collect.py" "import pkg.adapter.db as db"
+assert_exit 1 "自パッケージへの絶対 import も層の対象にする"
+teardown
+
+setup
+write "usecase/collect.py" "from pkg import adapter"
+assert_exit 1 "from <pkg> import <層> の形も止める"
+teardown
+
 # ── 誤検知しない ────────────────────────────────────────────────────
 
 setup
@@ -145,6 +163,17 @@ teardown
 setup
 write "usecase/collect.py" "from . import keyword_quality"
 assert_exit 0 "同じ層の中は通す"
+teardown
+
+setup
+write "adapter/source/alpha/__init__.py" "from .dto import clean"
+assert_exit 0 "__init__.py の同一パッケージ内 import は通す"
+teardown
+
+setup
+write "usecase/collect.py" "import pkg.domain.post
+from pkg import domain"
+assert_exit 0 "自パッケージへの絶対 import でも、許された層なら通す"
 teardown
 
 # 層のディレクトリに属さないファイルは、規則の対象外

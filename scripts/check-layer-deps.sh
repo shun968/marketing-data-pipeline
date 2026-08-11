@@ -67,17 +67,47 @@ def layer_of(module: str) -> str | None:
     return head if head in ALLOWED else None
 
 
-def resolve(module: str, node: ast.ImportFrom) -> str | None:
-    """`from . import x` 等を、パッケージ相対の絶対名へ直す。"""
-    if not node.level:
-        if node.module and node.module.split(".")[0] == package:
-            return node.module.split(".", 1)[1] if "." in node.module else ""
-        return None
-    parts = module.split(".")[:-1]  # 自分の属するパッケージ
-    up = node.level - 1
-    base = parts[: len(parts) - up] if up else parts
-    tail = node.module.split(".") if node.module else []
-    return ".".join([*base, *tail])
+def targets_of(module: str, node: ast.stmt, is_package: bool) -> list[str]:
+    """この import 文が指す、パッケージ相対のモジュール名を列挙する。
+
+    **`__init__.py` は自分自身がパッケージである。** モジュール名から
+    `.__init__` を落としてあるため、相対 import の基点を「1つ上」にすると
+    1階層ずれる。ずれると収集元どうしの依存を見逃し（`hnjobs/__init__.py` の
+    `from ..hackernews.dto import ...` が `adapter.hackernews.dto` に化ける）、
+    同時に正当な `from .dto import ...` を誤検知する。
+
+    自パッケージへの絶対 import（`import <pkg>.adapter.db` /
+    `from <pkg> import adapter`）も層の対象にする。ここを素通しにすると、
+    import の書き方を変えるだけで規則を迂回できる。
+    """
+    if isinstance(node, ast.Import):
+        out = []
+        for alias in node.names:
+            head, _, rest = alias.name.partition(".")
+            if head == package and rest:
+                out.append(rest)
+        return out
+
+    if not isinstance(node, ast.ImportFrom):
+        return []
+
+    if node.level:
+        # __init__.py の `.` は自分自身のパッケージを指す
+        parts = module.split(".") if is_package else module.split(".")[:-1]
+        up = node.level - 1
+        base = parts[: len(parts) - up] if up else parts
+        tail = node.module.split(".") if node.module else []
+        return [".".join([*base, *tail])]
+
+    if not node.module:
+        return []
+    head, _, rest = node.module.partition(".")
+    if head != package:
+        return []
+    if rest:
+        return [rest]
+    # `from <pkg> import adapter` の形。取り込む名前そのものが層になる
+    return [alias.name for alias in node.names]
 
 
 def check_horizontal(module: str, target: str) -> str | None:
@@ -96,6 +126,7 @@ def check_horizontal(module: str, target: str) -> str | None:
 
 for path in sorted(root.rglob("*.py")):
     rel = path.relative_to(root)
+    is_package = path.name == "__init__.py"
     module = str(rel).removesuffix(".py").replace("/", ".").removesuffix(".__init__")
     src_layer = layer_of(module)
     if src_layer is None:
@@ -103,25 +134,28 @@ for path in sorted(root.rglob("*.py")):
 
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom):
-            target_module = resolve(module, node)
-            if target_module is not None:
-                dst_layer = layer_of(target_module)
-                if dst_layer and dst_layer not in ALLOWED[src_layer]:
-                    violations.append(
-                        (rel, node.lineno, f"{src_layer} -> {dst_layer} は不可（ADR-0011）")
-                    )
-                elif dst_layer == src_layer == "adapter":
-                    reason = check_horizontal(module, target_module)
-                    if reason:
-                        violations.append((rel, node.lineno, reason))
+        if not isinstance(node, ast.Import | ast.ImportFrom):
+            continue
+
+        # 層をまたぐ import
+        for target in targets_of(module, node, is_package):
+            dst_layer = layer_of(target)
+            if dst_layer is None:
                 continue
+            if dst_layer not in ALLOWED[src_layer]:
+                violations.append(
+                    (rel, node.lineno, f"{src_layer} -> {dst_layer} は不可（ADR-0011）")
+                )
+            elif dst_layer == src_layer == "adapter":
+                reason = check_horizontal(module, target)
+                if reason:
+                    violations.append((rel, node.lineno, reason))
 
         # 外部ライブラリ
         names = []
         if isinstance(node, ast.Import):
             names = [a.name.split(".")[0] for a in node.names]
-        elif isinstance(node, ast.ImportFrom) and not node.level and node.module:
+        elif not node.level and node.module:
             names = [node.module.split(".")[0]]
 
         for name in names:
