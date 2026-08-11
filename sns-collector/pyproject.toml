@@ -12,7 +12,7 @@ dependencies = [
 ]
 
 [project.scripts]
-sns-collector = "sns_collector.cli:main"
+sns-collector = "sns_collector.entrypoint.cli:main"
 
 [build-system]
 requires = ["hatchling"]

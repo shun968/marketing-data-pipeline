@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 import requests
 
-from sns_collector.reddit.auth import TokenProvider, fetch_token
+from sns_collector.adapter.source.reddit.auth import TokenProvider, fetch_token
 
 
 class _Clock:
@@ -93,7 +93,7 @@ def test_access_tokenが無いレスポンスはRequestExceptionになる(monkey
     def fake_post_json(*_args, **_kwargs):
         return {"error": "invalid_grant"}
 
-    monkeypatch.setattr("sns_collector.reddit.auth.post_json", fake_post_json)
+    monkeypatch.setattr("sns_collector.adapter.source.reddit.auth.post_json", fake_post_json)
     with pytest.raises(requests.RequestException):
         fetch_token("id", "secret", "test-agent")
 
@@ -104,7 +104,7 @@ def test_access_tokenが無いレスポンスはTokenProvider経由でもRequest
     def fake_post_json(*_args, **_kwargs):
         return {}
 
-    monkeypatch.setattr("sns_collector.reddit.auth.post_json", fake_post_json)
+    monkeypatch.setattr("sns_collector.adapter.source.reddit.auth.post_json", fake_post_json)
     provider = TokenProvider("id", "secret", "test-agent")
     with pytest.raises(requests.RequestException):
         provider.token()
@@ -120,7 +120,7 @@ def test_User_Agentヘッダを付けてトークンを取りに行く(monkeypat
         captured["data"] = kwargs.get("data")
         return {"access_token": "t", "expires_in": 3600}
 
-    monkeypatch.setattr("sns_collector.reddit.auth.post_json", fake_post_json)
+    monkeypatch.setattr("sns_collector.adapter.source.reddit.auth.post_json", fake_post_json)
     token, expires_in = fetch_token("id", "secret", "test-agent")
 
     assert token == "t"
@@ -134,7 +134,7 @@ def test_ログにclient_secretを出さない(monkeypatch, capsys):
     def fake_post_json(*_args, **_kwargs):
         return {"access_token": "t", "expires_in": 3600}
 
-    monkeypatch.setattr("sns_collector.reddit.auth.post_json", fake_post_json)
+    monkeypatch.setattr("sns_collector.adapter.source.reddit.auth.post_json", fake_post_json)
     fetch_token("id", "super-secret-value", "test-agent")
 
     assert "super-secret-value" not in capsys.readouterr().out

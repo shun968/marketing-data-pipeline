@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from sns_collector.reddit.client import search_posts
+from sns_collector.adapter.source.reddit.client import search_posts
 
 
 def _search(payload: dict) -> list[dict]:
-    with patch("sns_collector.reddit.client.get_json", return_value=payload):
+    with patch("sns_collector.adapter.source.reddit.client.get_json", return_value=payload):
         return search_posts("kw", "token", "test-agent", 50, "new", "month")
 
 

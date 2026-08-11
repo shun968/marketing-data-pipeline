@@ -163,16 +163,16 @@ hnjobs:
 
 `hnjobs`だけは検索の当て方が違う。**キーワードで全文検索するのではなく、月次スレッドを特定してからその中を検索する。** 主催アカウントでスレッドを引き、タイトルで種別（求人 / 案件 / 求職）を分け、スレッド直下のコメントだけを求人票として採る。返信は議論なので採らない。
 
-**`hnjobs`のキーワードは事前確認のみ済み**（2026-08-11、検索APIで求人3本・案件3本へ問い合わせ）。収集データでの検証は初回収集後に行う。試し打ちには`sns_collector.hnjobs.client.list_threads` / `search_thread`を使う（認証不要・DB非破壊）。**その際、Algoliaの既定のタイプミス吸収を切ること**（`typoTolerance=false`）。切らないと短い語が別語へ広がり、`"cnc"`が13件ヒットして中身は全て無関係、という形の誤検知が出る。収集側（`hnjobs/client.py`）では無効化済み。
+**`hnjobs`のキーワードは事前確認のみ済み**（2026-08-11、検索APIで求人3本・案件3本へ問い合わせ）。収集データでの検証は初回収集後に行う。試し打ちには`sns_collector.adapter.source.hnjobs.client.list_threads` / `search_thread`を使う（認証不要・DB非破壊）。**その際、Algoliaの既定のタイプミス吸収を切ること**（`typoTolerance=false`）。切らないと短い語が別語へ広がり、`"cnc"`が13件ヒットして中身は全て無関係、という形の誤検知が出る。収集側（`adapter/source/hnjobs/client.py`）では無効化済み。
 
-**Redditのキーワードはまだ検証していない。** 他プラットフォームと同様、`sns_collector.reddit.client.search_posts`（トークン取得が要るため`sns_collector.reddit.auth.fetch_token`と組み合わせる）でDB非破壊に試し打ちし、キーワード設計の3原則（下記）に照らして確認してから`cron_run.sh`へ登録すること。
+**Redditのキーワードはまだ検証していない。** 他プラットフォームと同様、`sns_collector.adapter.source.reddit.client.search_posts`（トークン取得が要るため`sns_collector.adapter.source.reddit.auth.fetch_token`と組み合わせる）でDB非破壊に試し打ちし、キーワード設計の3原則（下記）に照らして確認してから`cron_run.sh`へ登録すること。
 
 **GitHubのキーワードには、他プラットフォームに無い制約が2つある**（2026-08-11の事前確認で判明。詳細と実測値は`config/keywords.yaml`の改訂履歴）。
 
 1. **`org:` / `repo:` で必ず限定する。** 限定しない検索はAI生成のダイジェストリポジトリが支配する（無限定の`ros2 "hard to debug"`は30件中26件が単一リポジトリだった）
 2. **取得件数ではなく母集団（`total_count`）で判定する。** `per_page`の上限まで常に返るため、フレーズ絞り込みが効いていても件数は張り付いて見分けが付かない。目安は20〜300件
 
-試し打ちには`sns_collector.github.client.search_issues`を使う（トークン未設定でも動く）。`total_count`が要るときは`common/http.py::get_json`で直接叩く。
+試し打ちには`sns_collector.adapter.source.github.client.search_issues`を使う（トークン未設定でも動く）。`total_count`が要るときは`adapter/http.py::get_json`で直接叩く。
 
 ### キーワード設計の3原則
 
@@ -495,14 +495,14 @@ run跨ぎの重複を避けるため、収集した投稿は同時に`data/analy
 
 ## レート制限とエラー耐性
 
-キーワード数が増えるとAPI側のスロットリングに掛かるため、`common/http.py`が全HTTPリクエストを仲介する。
+キーワード数が増えるとAPI側のスロットリングに掛かるため、`adapter/http.py`が全HTTPリクエストを仲介する。
 
 - **ペーシング**: 1リクエストごとに1秒の間隔を空ける
 - **再試行**: `403 / 429 / 5xx`を一時的な障害とみなし、指数バックオフ（2秒→4秒→8秒）で最大3回まで再試行する。`Retry-After`ヘッダがあればその値を優先する
   - Blueskyは連続アクセス時のスロットリングを`429`ではなく`403`で返すことがあるため、`403`も再試行対象に含めている
 - **キーワード単位の隔離**: 再試行しても回復しないキーワードはスキップして次へ進む。**1キーワードの失敗でrun全体を落とさない**
 
-**GitHubの検索APIだけレート制限が桁違いに低い**（未認証10 req/min・認証済み30 req/min）。他プラットフォームの1秒間隔ではなく、`github/client.py`が独自に6.5秒（未認証）/2.5秒（認証済み）の間隔を空ける。**Redditはトークン取得（POST）にも同じペーシング・再試行の仕組み（`common/http.py::post_json`）を通す。**
+**GitHubの検索APIだけレート制限が桁違いに低い**（未認証10 req/min・認証済み30 req/min）。他プラットフォームの1秒間隔ではなく、`adapter/source/github/client.py`が独自に6.5秒（未認証）/2.5秒（認証済み）の間隔を空ける。**Redditはトークン取得（POST）にも同じペーシング・再試行の仕組み（`adapter/http.py::post_json`）を通す。**
 
 最後の点が重要である。収集結果の保存はループ完了後に一度だけ行われるため、途中で例外が送出されるとそれまでに収集した全件が破棄される。特にYouTubeでは、消費済みのクオータまで無駄になる。
 

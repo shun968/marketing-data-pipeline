@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
-from sns_collector import cli
-from sns_collector.common.config import HackerNewsConfig
+from sns_collector.domain.collect import CollectSummary
+from sns_collector.domain.config import HackerNewsConfig
+from sns_collector.entrypoint import cli
 
 KEYWORDS_YAML = """
 bluesky:
@@ -50,7 +52,7 @@ def test_extract_prepareはprompts_dirをprepareへ渡す(tmp_path: Path):
     domains_path.write_text("domains:\n  - id: other\n", encoding="utf-8")
     prompts_dir = tmp_path / "custom_prompts"
 
-    with patch.object(cli.extract_mod, "prepare") as mock_prepare:
+    with patch.object(cli.extract_prepare, "prepare") as mock_prepare:
         mock_prepare.return_value = None
         code = cli.main(
             [
@@ -70,9 +72,13 @@ def test_extract_prepareはprompts_dirをprepareへ渡す(tmp_path: Path):
 
 
 @pytest.mark.parametrize("platform", list(cli.COLLECTORS))
-def test_収集コマンドは対応するrunと設定ロード関数へディスパッチする(
-    tmp_path: Path, platform: str, monkeypatch: pytest.MonkeyPatch
+def test_収集コマンドは設定を読んでcollectユースケースへ結線する(
+    tmp_path: Path, platform: str, monkeypatch: pytest.MonkeyPatch, capsys
 ):
+    """entrypoint の仕事は、設定を読んで I/O を結線することだけである（ADR-0011）。
+
+    収集の手順そのものは usecase 側にあり、ここでは呼び分けと結線だけを見る。
+    """
     # youtube/redditの設定ロードは環境変数必須。CIには無いためテスト内で明示的に与える。
     # GITHUB_TOKENは任意のため与えない(未設定でも通ることの回帰にもなる)
     monkeypatch.setenv("YOUTUBE_API_KEY", "dummy")
@@ -82,17 +88,30 @@ def test_収集コマンドは対応するrunと設定ロード関数へディ�
     keywords_path = tmp_path / "keywords.yaml"
     keywords_path.write_text(KEYWORDS_YAML, encoding="utf-8")
 
-    module, _load_fn = cli.COLLECTORS[platform]
+    seen: dict = {}
 
-    with patch.object(module, "run") as mock_run:
+    def fake_tasks(config, collected_at, notify):
+        # 実際の tasks() は通信する(reddit のトークン取得・hnjobs のスレッド一覧)
+        seen["config"] = config
+        return []
+
+    monkeypatch.setitem(
+        cli.COLLECTORS, platform, replace(cli.COLLECTORS[platform], build_tasks=fake_tasks)
+    )
+
+    with patch.object(cli, "collect", return_value=CollectSummary()) as mock_collect:
         code = cli.main(
             [platform, "--keywords", str(keywords_path), "--data-dir", str(tmp_path / "data")]
         )
 
     assert code == 0
-    mock_run.assert_called_once()
-    _config, kwargs = mock_run.call_args.args, mock_run.call_args.kwargs
-    assert kwargs["data_dir"] == tmp_path / "data" / platform
+    assert seen["config"].keywords == ["語"], (
+        "keywords.yaml のこのプラットフォームの節を読んでいない"
+    )
+    mock_collect.assert_called_once()
+
+    # JSONLの出力先はプラットフォームごとに分かれる
+    assert str(tmp_path / "data" / platform) in capsys.readouterr().out
 
 
 def test_収集レジストリとアダプタレジストリのキーが一致する():
@@ -101,16 +120,17 @@ def test_収集レジストリとアダプタレジストリのキーが一致�
     JSONLは残るのでデータは失われないが、その run 以降が落ちる。型チェッカーが無い
     この構成では、レジストリの整合をこのテストで実行可能な形にして担保する。
     """
-    from sns_collector.db.adapters import ADAPTERS
+    from sns_collector.adapter.db.mapping import ADAPTERS
 
     assert set(cli.COLLECTORS) == set(ADAPTERS)
 
 
 @pytest.mark.parametrize("platform", list(cli.COLLECTORS))
-def test_収集モジュールはrunを持つ(platform: str):
-    module, load_config = cli.COLLECTORS[platform]
-    assert callable(getattr(module, "run", None))
-    assert callable(load_config)
+def test_収集レジストリは結線に必要な3つを揃えて持つ(platform: str):
+    spec = cli.COLLECTORS[platform]
+    assert callable(spec.load_config)
+    assert callable(spec.build_tasks)
+    assert spec.unit, "ログの語が空だとメッセージが崩れる"
 
 
 def test_hackernewsのkeywords未設定は設定エラーになる(tmp_path: Path, capsys):
@@ -126,7 +146,7 @@ def test_hackernewsのkeywords未設定は設定エラーになる(tmp_path: Pat
 
 
 def test_load_hackernews_configは既定のtagsとhits_per_pageを持つ(tmp_path: Path):
-    from sns_collector.common.config import load_hackernews_config
+    from sns_collector.adapter.config_file import load_hackernews_config
 
     keywords_path = tmp_path / "keywords.yaml"
     keywords_path.write_text('hackernews:\n  keywords: ["語"]\n', encoding="utf-8")
@@ -138,7 +158,7 @@ def test_load_hackernews_configは既定のtagsとhits_per_pageを持つ(tmp_pat
 
 
 def test_load_github_configはトークン未設定でもNoneで通る(tmp_path: Path, monkeypatch):
-    from sns_collector.common.config import load_github_config
+    from sns_collector.adapter.config_file import load_github_config
 
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     keywords_path = tmp_path / "keywords.yaml"
@@ -151,7 +171,7 @@ def test_load_github_configはトークン未設定でもNoneで通る(tmp_path:
 
 
 def test_load_github_configはトークンを環境変数から読む(tmp_path: Path, monkeypatch):
-    from sns_collector.common.config import load_github_config
+    from sns_collector.adapter.config_file import load_github_config
 
     monkeypatch.setenv("GITHUB_TOKEN", "ghp_dummy")
     keywords_path = tmp_path / "keywords.yaml"
@@ -162,7 +182,8 @@ def test_load_github_configはトークンを環境変数から読む(tmp_path: 
 
 
 def test_githubのkeywords未設定は設定エラーになる(tmp_path: Path):
-    from sns_collector.common.config import ConfigError, load_github_config
+    from sns_collector.adapter.config_file import load_github_config
+    from sns_collector.domain.config import ConfigError
 
     keywords_path = tmp_path / "keywords.yaml"
     keywords_path.write_text("github: {}\n", encoding="utf-8")
@@ -172,7 +193,8 @@ def test_githubのkeywords未設定は設定エラーになる(tmp_path: Path):
 
 
 def test_reddit_の環境変数が欠けていたら不足分をまとめて報告する(tmp_path: Path, monkeypatch):
-    from sns_collector.common.config import ConfigError, load_reddit_config
+    from sns_collector.adapter.config_file import load_reddit_config
+    from sns_collector.domain.config import ConfigError
 
     monkeypatch.delenv("REDDIT_CLIENT_ID", raising=False)
     monkeypatch.delenv("REDDIT_CLIENT_SECRET", raising=False)
@@ -190,7 +212,8 @@ def test_reddit_の環境変数が欠けていたら不足分をまとめて報�
 
 
 def test_load_reddit_configは既定のsortとtime_filterを持つ(tmp_path: Path, monkeypatch):
-    from sns_collector.common.config import RedditConfig, load_reddit_config
+    from sns_collector.adapter.config_file import load_reddit_config
+    from sns_collector.domain.config import RedditConfig
 
     monkeypatch.setenv("REDDIT_CLIENT_ID", "id")
     monkeypatch.setenv("REDDIT_CLIENT_SECRET", "secret")
@@ -206,7 +229,8 @@ def test_load_reddit_configは既定のsortとtime_filterを持つ(tmp_path: Pat
 
 
 def test_redditのkeywords未設定は設定エラーになる(tmp_path: Path, monkeypatch):
-    from sns_collector.common.config import ConfigError, load_reddit_config
+    from sns_collector.adapter.config_file import load_reddit_config
+    from sns_collector.domain.config import ConfigError
 
     monkeypatch.setenv("REDDIT_CLIENT_ID", "id")
     monkeypatch.setenv("REDDIT_CLIENT_SECRET", "secret")

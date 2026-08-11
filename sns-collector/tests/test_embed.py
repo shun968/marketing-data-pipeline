@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from sns_collector.db import connect, insert_records
-from sns_collector.embed import embed
+from sns_collector.adapter.db import connect, insert_records
+from sns_collector.adapter.db.embedding import embed
 from tests.conftest import BLUESKY_RECORD
 
 

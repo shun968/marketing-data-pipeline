@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from sns_collector.hnjobs.client import list_threads, search_thread
+from sns_collector.adapter.source.hnjobs.client import list_threads, search_thread
 
 
 def test_hitsがnullでも空配列を返す():
@@ -11,13 +11,13 @@ def test_hitsがnullでも空配列を返す():
     後続の`for hit in hits:`(search.py)がTypeErrorで落ち、
     requests.RequestExceptionの隔離をすり抜けてrun全体が止まる。
     """
-    with patch("sns_collector.hnjobs.client.get_json", return_value={"hits": None}):
+    with patch("sns_collector.adapter.source.hnjobs.client.get_json", return_value={"hits": None}):
         assert search_thread("1", "kw", 50) == []
         assert list_threads("whoishiring", 50) == []
 
 
 def test_hitsキーが無くても空配列を返す():
-    with patch("sns_collector.hnjobs.client.get_json", return_value={}):
+    with patch("sns_collector.adapter.source.hnjobs.client.get_json", return_value={}):
         assert search_thread("1", "kw", 50) == []
 
 
@@ -28,7 +28,9 @@ def test_スレッド内検索はタイプミス吸収を無効にする():
     マッチングサービス等で工作機械と無関係だった。無効化すると0件になる。
     件数から領域の厚みを判断するため、ここが効くと結論そのものが歪む。
     """
-    with patch("sns_collector.hnjobs.client.get_json", return_value={"hits": []}) as mock_get:
+    with patch(
+        "sns_collector.adapter.source.hnjobs.client.get_json", return_value={"hits": []}
+    ) as mock_get:
         search_thread("49156683", "cnc", 50)
 
     assert mock_get.call_args.kwargs["params"]["typoTolerance"] == "false"
@@ -36,7 +38,9 @@ def test_スレッド内検索はタイプミス吸収を無効にする():
 
 def test_スレッド一覧は投稿者タグで引く():
     """タイトルの全文検索では別人の関連スレッドが混ざる(2026-08-11 実測)。"""
-    with patch("sns_collector.hnjobs.client.get_json", return_value={"hits": []}) as mock_get:
+    with patch(
+        "sns_collector.adapter.source.hnjobs.client.get_json", return_value={"hits": []}
+    ) as mock_get:
         list_threads("jon_north", 12)
 
     params = mock_get.call_args.kwargs["params"]
@@ -45,7 +49,9 @@ def test_スレッド一覧は投稿者タグで引く():
 
 
 def test_スレッド内検索はstoryタグでコメントに限定する():
-    with patch("sns_collector.hnjobs.client.get_json", return_value={"hits": []}) as mock_get:
+    with patch(
+        "sns_collector.adapter.source.hnjobs.client.get_json", return_value={"hits": []}
+    ) as mock_get:
         search_thread("49156683", "embedded", 50)
 
     assert mock_get.call_args.kwargs["params"]["tags"] == "comment,story_49156683"

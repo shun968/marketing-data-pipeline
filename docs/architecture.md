@@ -69,7 +69,7 @@ Claude Code はこのマシン上で動くが、C4のLevel 1では**自分たち
 | Hugging Face Hub | 埋め込みモデルの取得 | HTTPS GET | 不要 | なし（モデル名のみ） |
 | Anthropic API | 構造化抽出 | HTTPS（Claude Code経由） | Claude Codeの認証 | **投稿本文** |
 
-エンドポイントの実体は `bluesky/client.py` / `youtube/client.py` / `hackernews/client.py` の `SEARCH_URL` にある。
+エンドポイントの実体は `adapter/source/bluesky/client.py` / `adapter/source/youtube/client.py` / `adapter/source/hackernews/client.py` の `SEARCH_URL` にある。
 
 ### 外部へ出るものの線引き
 
@@ -266,7 +266,7 @@ flowchart TB
 
 | 経路 | プロトコル | 境界をまたぐか |
 |---|---|---|
-| CLI → 収集API | HTTPS GET（`common/http.py` が仲介。1秒間隔、最大4回試行・指数バックオフの待機は最大3回） | マシン → インターネット |
+| CLI → 収集API | HTTPS GET（`adapter/http.py` が仲介。1秒間隔、最大4回試行・指数バックオフの待機は最大3回） | マシン → インターネット |
 | CLI → Hugging Face Hub | HTTPS GET（初回のみ） | マシン → インターネット |
 | Claude Code → Anthropic API | HTTPS | マシン → インターネット |
 | cron → 収集ジョブ起動 | プロセス起動（fork/exec） + flock | マシン内 |
@@ -274,7 +274,7 @@ flowchart TB
 | CLI ↔ Claude Code | ローカルファイルの受け渡し（JSONL / Markdown） | マシン内 |
 | ブラウザ → dashboard | HTTP over loopback（`127.0.0.1:8787`） | マシン内（ループバック限定） |
 
-すべての外向き通信は `common/http.py` を通る収集APIか、Claude Codeセッションのいずれかに限られる。
+すべての外向き通信は `adapter/http.py` を通る収集APIか、Claude Codeセッションのいずれかに限られる。
 
 ---
 

@@ -57,11 +57,11 @@ sns-collector/            収集ツール（Python 3.11+ / uv）
   CLAUDE.md               ← この領域の規約・開発コマンドはこちら
   config/                 keywords.yaml（検索語） domains.yaml（観測ドメインと仮説）
   scripts/cron_run.sh     定期収集のcronラッパー（flockによる多重起動防止）
-  src/sns_collector/
-    common/http.py        全HTTPリクエストの仲介。ペーシングと再試行
-    common/config.py      設定ロード
-    db/                   分析ストア（DuckDB）。スキーマ・正規化・ロード
-    bluesky/ youtube/     プラットフォーム別のclient/search/models
+  src/sns_collector/      4層構造。層をまたぐimportの規則はADR-0011
+    domain/               中核の型。標準ライブラリのみに依存する
+    usecase/              ユースケース。I/Oは引数で受け取る
+    adapter/              外部世界との境界（HTTP / JSONL / DuckDB / 収集元別）
+    entrypoint/cli.py     引数解析と依存の結線
   tests/                  単体テストのみ。実API通信は行わない
 maritime-collector/       sns-collectorを別トピックへ再利用するインスタンス（ADR-0008）
   CLAUDE.md               ← Pythonコードは持たない。この領域固有の情報はこちら

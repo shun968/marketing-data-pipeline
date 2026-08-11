@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from sns_collector.github.models import GitHubIssue
+from sns_collector.adapter.source.github.dto import GitHubIssue
 
 COLLECTED_AT = datetime(2026, 8, 8, tzinfo=UTC)
 

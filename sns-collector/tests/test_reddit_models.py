@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from sns_collector.reddit.models import RedditPost
+from sns_collector.adapter.source.reddit.dto import RedditPost
 
 COLLECTED_AT = datetime(2026, 8, 8, tzinfo=UTC)
 

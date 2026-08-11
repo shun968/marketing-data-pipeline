@@ -30,6 +30,12 @@ pre-commit:
     - name: lint
       run: ./scripts/record-check.sh lint-projects -- ./scripts/lint-projects.sh --staged-only
 
+    # 層をまたぐ import の向き(ADR-0011)。Pythonが変わったときだけ回す。
+    # 対象はパッケージ全体で、変更ファイルだけを見ても依存の向きは判定できない
+    - name: layer-deps
+      glob: "sns-collector/src/**/*.py"
+      run: ./scripts/record-check.sh layer-deps -- ./scripts/check-layer-deps.sh
+
     # 同じ規約が複数ファイルへ書き写されていないかを見る。
     # 対象は追跡中の全ファイルで、変更箇所に依存しないため常に回す
     - name: doc-duplication
