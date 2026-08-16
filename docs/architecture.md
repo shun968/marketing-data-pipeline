@@ -64,7 +64,7 @@ Claude Code はこのマシン上で動くが、C4のLevel 1では**自分たち
 | 外部システム | 用途 | プロトコル | 認証 | 送信する内容 |
 |---|---|---|---|---|
 | Bluesky Public AppView API | 投稿検索 | HTTPS GET | 不要 | 検索キーワード |
-| YouTube Data API v3 | 動画検索 | HTTPS GET | APIキー（`.env` の `YOUTUBE_API_KEY`） | 検索キーワード |
+| YouTube Data API v3 | 動画検索 | HTTPS GET | APIキー（`YOUTUBE_API_KEY`。置き場所はADR-0012） | 検索キーワード |
 | Hacker News（Algolia Search） | 投稿・コメント検索 | HTTPS GET | 不要 | 検索キーワード |
 | Hugging Face Hub | 埋め込みモデルの取得 | HTTPS GET | 不要 | なし（モデル名のみ） |
 | Anthropic API | 構造化抽出 | HTTPS（Claude Code経由） | Claude Codeの認証 | **投稿本文** |
@@ -89,7 +89,7 @@ flowchart TB
         wrap["収集ジョブ起動<br/>[Container: bash + flock]<br/>cron_run.sh。多重起動を防ぐ"]
         cli["sns-collector CLI<br/>[Container: Python 3.11+ / uv]<br/>収集・ロード・抽出入出力・埋め込み・検索"]
         dash["dashboard<br/>[Container: FastAPI / uvicorn / Jinja2]<br/>ルール・ADR・レポート・ログ・メトリクスの表示"]
-        cfg["設定<br/>[Container: YAML / .env]<br/>keywords.yaml / domains.yaml / APIキー"]
+        cfg["設定<br/>[Container: YAML]<br/>keywords.yaml / domains.yaml<br/>APIキーはリポジトリ外（ADR-0012）"]
         jsonl[("生データ<br/>[Container: JSONLファイル]<br/>data/{platform}/*.jsonl")]
         db[("分析ストア<br/>[Container: DuckDB]<br/>posts / insights / edges / extraction_batches")]
         batch["抽出バッチ<br/>[Container: JSONL + Markdown]<br/>data/extract/"]

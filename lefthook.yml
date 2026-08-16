@@ -5,6 +5,11 @@ pre-commit:
     - name: no-private-data
       run: ./scripts/record-check.sh no-private-data -- ./scripts/check-no-private-data.sh
 
+    # 鍵が隔離境界の内側に残っていないか(ADR-0012)。コミットの内容ではなく
+    # 作業環境の状態を見るため、変更箇所に依存せず常に回す
+    - name: secret-outside-workspace
+      run: ./scripts/record-check.sh secret-outside-workspace -- ./scripts/check-secret-outside-workspace.sh
+
     - name: adr-format
       glob: "docs/adr/*.md"
       run: ./scripts/record-check.sh adr-format -- ./scripts/check-adr-format.sh {staged_files}

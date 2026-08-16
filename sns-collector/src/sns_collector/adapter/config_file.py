@@ -22,6 +22,36 @@ from ..domain.config import (
     YouTubeConfig,
 )
 
+ENV_FILE_VAR = "SNS_COLLECTOR_ENV_FILE"
+
+
+def _load_env(env_path: Path | None) -> None:
+    """APIキーを持つ .env を読む。**置き場所を推測しない。**
+
+    `load_dotenv(dotenv_path=None)` はカレントから上へ `.env` を探すため、
+    リポジトリ直下に鍵を置く運用を誘発する。ワークスペースはdevcontainerへ
+    bindマウントされており、そこに鍵があるとセッションの子プロセスから
+    読める（docs/isolation.md §3 経路3 / ADR-0012）。
+
+    場所は環境変数 `SNS_COLLECTOR_ENV_FILE` で明示的に受け取る。未設定なら
+    ファイルを一切探さず、既に環境へ入っている値だけを使う。
+    **指定されたファイルが無いときは黙って探索へ落とさない。** 落とすと、
+    移設し損ねた鍵をワークスペース側から拾って動いてしまい、移設できて
+    いないことに気づけない。
+    """
+    if env_path is None:
+        raw = os.environ.get(ENV_FILE_VAR, "")
+        if not raw:
+            return
+        env_path = Path(raw)
+
+    if not env_path.is_file():
+        raise ConfigError(
+            f"{ENV_FILE_VAR} が指すファイルがありません: {env_path}。"
+            " 鍵はワークスペースの外へ置く（ADR-0012）。"
+        )
+    load_dotenv(dotenv_path=env_path)
+
 
 def _load_keywords_file(path: Path) -> dict:
     return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
@@ -74,12 +104,13 @@ def load_bluesky_config(path: Path) -> BlueskyConfig:
 
 
 def load_youtube_config(path: Path, env_path: Path | None = None) -> YouTubeConfig:
-    load_dotenv(dotenv_path=env_path)
+    _load_env(env_path)
     api_key = os.environ.get("YOUTUBE_API_KEY", "")
     if not api_key:
         raise ConfigError(
             "必須の環境変数 YOUTUBE_API_KEY が未設定です。"
-            " .env.example を参考に .env を作成してください。"
+            f" {ENV_FILE_VAR} にワークスペース外の環境ファイルを指定してください"
+            "（書式は .env.example を参照。ADR-0012）。"
         )
 
     raw = _load_keywords_file(path).get("youtube", {})
@@ -129,7 +160,7 @@ def load_hnjobs_config(path: Path) -> HackerNewsJobsConfig:
 
 
 def load_github_config(path: Path, env_path: Path | None = None) -> GitHubConfig:
-    load_dotenv(dotenv_path=env_path)
+    _load_env(env_path)
     # トークンは任意。無くても検索できる(レート制限が10 req/minへ下がるだけ)。
     # 必須にすると、キーワード候補を実データで検証する前段の作業まで
     # 資格情報の準備待ちになる(sns-collector/CLAUDE.md「質の確認に本収集を使わない」)
@@ -150,7 +181,7 @@ def load_github_config(path: Path, env_path: Path | None = None) -> GitHubConfig
 
 
 def load_reddit_config(path: Path, env_path: Path | None = None) -> RedditConfig:
-    load_dotenv(dotenv_path=env_path)
+    _load_env(env_path)
     missing = [
         name
         for name in ("REDDIT_CLIENT_ID", "REDDIT_CLIENT_SECRET", "REDDIT_USER_AGENT")
@@ -159,7 +190,8 @@ def load_reddit_config(path: Path, env_path: Path | None = None) -> RedditConfig
     if missing:
         raise ConfigError(
             f"必須の環境変数 {', '.join(missing)} が未設定です。"
-            " .env.example を参考に .env を作成してください。"
+            f" {ENV_FILE_VAR} にワークスペース外の環境ファイルを指定してください"
+            "（書式は .env.example を参照。ADR-0012）。"
         )
 
     raw = _load_keywords_file(path).get("reddit", {})

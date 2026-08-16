@@ -9,6 +9,15 @@ PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 #   DuckDBはプロセス間で排他ロックを取るため、bluesky(0 */3)・youtube(15 */3)・
 #   hackernews(30 */3)・report(週次)が重なると後発が IOException で落ちる。
 #   コマンド別ロックでは、その衝突を防げない。
+# APIキーの置き場。**ホストのホーム配下を指す**（ADR-0012）。
+# このラッパーが走るのはホストのcronであり、${HOME}はホスト側のホームになる。
+# devcontainer内のホームは再作成で消えるうえ、ここからは見えない。
+# ここを PROJECT_DIR 配下へ戻すと、devcontainer内のセッションの子プロセスから
+# 鍵が読める状態に戻る（docs/isolation.md §3 経路3）。
+# 指定先が無い場合、キーを要する収集は ConfigError で止まる（黙って
+# トークン無しの劣化状態で走らせない）。
+export SNS_COLLECTOR_ENV_FILE="${SNS_COLLECTOR_ENV_FILE:-${XDG_CONFIG_HOME:-${HOME}/.config}/sns-collector/.env}"
+
 LOCK_FILE="${PROJECT_DIR}/state/.locks/collector.lock"
 LOG_FILE="${PROJECT_DIR}/state/.logs/${PLATFORM}.log"
 mkdir -p "$(dirname "${LOCK_FILE}")" "$(dirname "${LOG_FILE}")"

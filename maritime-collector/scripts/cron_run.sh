@@ -16,9 +16,15 @@ set -euo pipefail
 # cwdを sns-collector/ へ移さない理由:
 #   `uv run --directory <topic> --project <sns-collector> ...` で依存解決は
 #   sns-collector側に委ね、実行時のcwdは`--directory`で明示的にこのディレクトリ
-#   (maritime-collector/)へ留める。cwdをsns-collector/へ移すと、python-dotenvが
-#   実行時cwdから.envを探すため、将来 maritime-collector/.env を置いてもそちらが
-#   見つからず、sns-collector/.env が誤って使われてしまう。
+#   (maritime-collector/)へ留める。相対パスの解決先をトピック側に揃えるため。
+#
+# APIキーについて:
+#   このトピックはbluesky/hackernewsのみで鍵が要らないため、
+#   SNS_COLLECTOR_ENV_FILE を設定していない。鍵を要する収集元を足すときは、
+#   ワークスペース外のパスを指してこの変数をexportする(ADR-0012)。
+#   **トピックディレクトリ配下に .env を置かない。** cwdからの暗黙探索は
+#   config_file.py で塞いであるが、ファイルを置けばセッションの子プロセスから
+#   読める状態そのものは戻る(docs/isolation.md §3 経路3)。
 #
 # bash -lc を挟む理由:
 #   cronは最小限のPATHしか持たない。sns-collector/README.md「定期実行(cron)」の

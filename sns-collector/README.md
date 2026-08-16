@@ -24,12 +24,28 @@ uv sync
 
 認証不要。Algoliaが提供する公開検索API（`hn.algolia.com`）を使うため、追加設定なしですぐ実行できる。
 
+### 鍵の置き場所（認証が要る収集元の共通の前提）
+
+**環境ファイルはこのリポジトリの中に置かない**（ADR-0012）。既定の場所は次のとおりで、`scripts/cron_run.sh` がこのパスを `SNS_COLLECTOR_ENV_FILE` へ入れて実行する。
+
+**次はホスト側で実行する。**（devcontainer内のホームは `.claude` / `.config/gh` を除いて再作成のたびに消え、ホスト側のcronからも見えない。収集を回すのはホストである。）
+
+```sh
+mkdir -p ~/.config/sns-collector
+cp .env.example ~/.config/sns-collector/.env
+chmod 600 ~/.config/sns-collector/.env
+```
+
+別の場所に置く場合は `SNS_COLLECTOR_ENV_FILE` にそのパスを設定する。手で実行するときも同じで、変数が未設定なら**ファイルは一切探されない**（シェルでexport済みの変数はそのまま使われる）。
+
+以降の「環境ファイルに設定する」は、すべてこのファイルを指す。
+
 ### GitHub
 
 認証は任意。未設定でも検索できるが、検索APIのレート制限が未認証10 req/min・認証済み30 req/minと大きく異なるため、トークンの発行を推奨する。
 
 1. [Personal access token (fine-grained)](https://github.com/settings/tokens?type=beta) を発行する。公開Issueの検索のみなので、scopeは不要（`public_repo`も不要）
-2. `.env`に設定する（既にシェルで`GITHUB_TOKEN`をexportしている場合はそちらが優先される）
+2. 環境ファイルに設定する（既にシェルで`GITHUB_TOKEN`をexportしている場合はそちらが優先される）
 
 ```
 GITHUB_TOKEN=発行したトークンをここに貼る
@@ -41,7 +57,7 @@ GITHUB_TOKEN=発行したトークンをここに貼る
 
 1. https://www.reddit.com/prefs/apps で「create another app...」→ **script** タイプで新規登録する（redirect URIはローカル収集では使わないため、`http://localhost` 等の適当な値でよい）
 2. 登録後に表示される `client_id`（アプリ名の下の文字列）と `secret` を控える
-3. `.env`に設定する
+3. 環境ファイルに設定する
 
 ```
 REDDIT_CLIENT_ID=xxxxxxxxxxxxxxxx
@@ -59,17 +75,13 @@ REDDIT_USER_AGENT=script:sns-collector:1.0 (by /u/yourname)
    - 名前の似た`YouTube Analytics API` / `YouTube Reporting API`は別物。**v3**を選ぶこと
 3. 「認証情報」→「認証情報を作成」→「APIキー」でキーを発行
 4. **発行したキーを制限する**（次節。省略しないこと）
-5. `.env`を作成し、キーを設定する
-
-```sh
-cp .env.example .env
-```
+5. 環境ファイルにキーを設定する
 
 ```
 YOUTUBE_API_KEY=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
-`.env`は`.gitignore`済みだが、**このリポジトリはPublicである**。キーの制限設定は事故時の被害を限定するための最後の防壁になる。
+**このリポジトリはPublicであり、鍵はリポジトリの外に置いてもなお漏れうる。** キーの制限設定は事故時の被害を限定するための最後の防壁になる。
 
 #### APIキーの制限
 
@@ -101,7 +113,8 @@ uv run sns-collector youtube
 
 | 症状 | 原因 |
 |---|---|
-| `設定エラー: 必須の環境変数 YOUTUBE_API_KEY が未設定です` | `.env`の場所か変数名が違う |
+| `設定エラー: 必須の環境変数 YOUTUBE_API_KEY が未設定です` | `SNS_COLLECTOR_ENV_FILE`が未設定、または変数名が違う |
+| `設定エラー: SNS_COLLECTOR_ENV_FILE が指すファイルがありません` | 指定先へ環境ファイルを置いていない（探索へは落ちない） |
 | 全キーワードで`403 Client Error` | APIの制限が誤っている、またはAPI未有効化 |
 | 途中から`403` | クォータ超過（太平洋時間0時にリセット） |
 
