@@ -306,6 +306,33 @@ mutate_settings '.permissions.allow = ["Bash(gh  pr   merge --squash)"]'
 assert_exit 1 "検知: 空白の入り方が違っても gh pr merge を捕まえる"
 teardown
 
+# permissionsのルールは前方一致。止められた人が広いルールへ書き換えて
+# 迂回するのが現実的な失敗の形なので、丸ごと許可する形も対象にする
+setup
+write_settings
+mutate_settings '.permissions.allow = ["Bash(gh:*)"]'
+assert_exit 1 "検知: gh を丸ごと許可している"
+teardown
+
+setup
+write_settings
+mutate_settings '.permissions.allow = ["Bash(gh pr:*)"]'
+assert_exit 1 "検知: gh pr を丸ごと許可している"
+teardown
+
+setup
+write_settings
+mutate_settings '.permissions.allow = ["Bash(gh *)"]'
+assert_exit 1 "検知: 空白ワイルドカードの形も捕まえる"
+teardown
+
+# 不正な設定を「違反なし」と読まない（fail-closed）
+setup
+write_settings
+mutate_settings '.permissions.allow = [123]'
+assert_exit 1 "検知: allow に文字列でない要素がある"
+teardown
+
 setup
 write_settings
 mutate_settings '.permissions.allow = ["Bash(gh pr create:*)", "Bash(gh pr view:*)"]'
@@ -316,6 +343,12 @@ setup
 write_settings
 mutate_settings '.permissions.allow = ["Bash(git merge:*)"]'
 assert_exit 0 "誤検知しない: 別コマンドの merge"
+teardown
+
+setup
+write_settings
+mutate_settings '.permissions.allow = ["Bash(ghq get:*)", "Bash(gh auth:*)"]'
+assert_exit 0 "誤検知しない: ghで始まる別コマンド・別サブコマンド"
 teardown
 
 setup

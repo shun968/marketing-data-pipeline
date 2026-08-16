@@ -202,12 +202,23 @@ if in_index "${SETTINGS}"; then
   #   止まった(#76)。個人設定(~/.claude/settings.json)に置くのは許容する。
   #   そちらはリポジトリに入らず、他の開発者へ無自覚に継承されない。
   #
-  #   **対象は実際に事故を起こした形だけに絞る。** 「危険そうな操作」を広く
-  #   弾くと誤検知が増え、ゲートごと無効化される
+  #   **`gh pr merge` の文字列だけを見ては足りない。** permissionsのルールは
+  #   前方一致なので、`Bash(gh:*)` や `Bash(gh pr:*)` も `gh pr merge` を許可する。
+  #   ここで止められた人が、より広いルールへ書き換えて迂回するのが現実的な失敗の形
+  #   であるため、`gh` / `gh pr` を丸ごと許可する形も対象にする。
+  #
+  #   一方で `gh pr create` / `gh pr view` のようなサブコマンド指定は通す。
+  #   「危険そうな操作」を広く弾くと誤検知が増え、ゲートごと無効化される
   #   (scripts/check-shell-idioms.sh 冒頭と同じ方針)。
-  if jq -e '.permissions.allow // [] | map(select(test("gh +pr +merge"))) | length > 0' \
-    > /dev/null 2>&1 <<< "${settings_content}"; then
-    report irreversible-allow "${SETTINGS} の allow に取り消せない操作がある（gh pr merge。個人設定へ移す）"
+  #
+  #   判定を反転させて fail-closed にしてある。`if jq -e ... ; then report` の形だと
+  #   jqの実行時エラー(不正なJSON など)が「違反なし」と同じ扱いになり、
+  #   他の検査が通る限りスクリプト全体が0で終わる。上のdeny/askの検査と向きを揃える。
+  #   文字列でない要素も違反として扱う。判定できないものを通すと同じ穴になる
+  if ! jq -e '.permissions.allow // []
+      | map(select(type != "string" or test("^Bash\\( *gh( +pr)?( *[*:)]| +merge| *$)")))
+      | length == 0' > /dev/null 2>&1 <<< "${settings_content}"; then
+    report irreversible-allow "${SETTINGS} の allow が gh pr merge を許可している（個人設定へ移す）"
   fi
 
   # OS層の境界は devcontainer が担う(ADR-0007)。ホストの AppArmor は変更しない
