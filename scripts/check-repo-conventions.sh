@@ -191,6 +191,25 @@ if in_index "${SETTINGS}"; then
     fi
   done
 
+  # 取り消せない操作をプロジェクト設定で常時許可にしない。
+  #
+  #   `gh pr merge` は取り消せない。CLAUDE.md はレビューの実行を運用で担保すると
+  #   定めており、承認プロンプトはその運用が抜けたときに残る最後の一拍になる。
+  #   プロジェクト設定で常時許可にすると、リポジトリを取得した全員に対して
+  #   その一拍が黙って消える。
+  #
+  #   実際に、レビューがエージェント自身によるものだったPRのマージがここで
+  #   止まった(#76)。個人設定(~/.claude/settings.json)に置くのは許容する。
+  #   そちらはリポジトリに入らず、他の開発者へ無自覚に継承されない。
+  #
+  #   **対象は実際に事故を起こした形だけに絞る。** 「危険そうな操作」を広く
+  #   弾くと誤検知が増え、ゲートごと無効化される
+  #   (scripts/check-shell-idioms.sh 冒頭と同じ方針)。
+  if jq -e '.permissions.allow // [] | map(select(test("gh +pr +merge"))) | length > 0' \
+    > /dev/null 2>&1 <<< "${settings_content}"; then
+    report irreversible-allow "${SETTINGS} の allow に取り消せない操作がある（gh pr merge。個人設定へ移す）"
+  fi
+
   # OS層の境界は devcontainer が担う(ADR-0007)。ホストの AppArmor は変更しない
   # 方針のため、Bashサンドボックス(bwrap)はこの機械では使えない。境界の実体で
   # あるファイアウォールが default-deny を保っていることを確かめる
