@@ -10,6 +10,9 @@ FROM mcr.microsoft.com/devcontainers/base:ubuntu-24.04
 
 ARG TASK_VERSION=v3.52.0
 ARG UV_VERSION=0.11.32
+# commitlint が engines.node ">=22.12.0" を宣言している。下回ると npm ci が
+# EBADENGINE で落ち、commit-msg フックが動かなくなる(このNode追加が塞いだはずの状態)
+ARG NODE_VERSION=22.14.0
 
 # iptables/ipset/dnsutils/iproute2 は init-firewall.sh の実行に必要
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -31,6 +34,28 @@ RUN curl -LsSf "https://astral.sh/uv/${UV_VERSION}/install.sh" \
 
 # go-task
 RUN curl -LsSf https://taskfile.dev/install.sh | sh -s -- -d -b /usr/local/bin "${TASK_VERSION}"
+
+# Node.js。**このリポジトリのPythonコードのためではなく、コミット時のゲートのために要る。**
+# lefthookの lint ジョブが `npm run lint` を、commit-msg が `npx commitlint` を呼ぶため、
+# これが無いとコンテナ内で一切コミットできない。開発セッションをコンテナ内で動かす前提
+# (ADR-0007)と噛み合わなくなるので、Pythonプロジェクトだからと外さないこと。
+#
+# aptのnodejsはUbuntu 24.04では18系で、commitlint v21の要求を満たさない。
+# 他のツールと同じくバージョンを固定して公式tarballから入れる。
+# パイプではなく一旦ファイルへ落とす: 途中で切れたアーカイブを展開して
+# 「入っているが壊れている」状態でイメージが焼き上がるのを防ぐ。
+# 最後にバージョンを表示して、動かないものが混ざったらビルドを失敗させる
+RUN arch="$(dpkg --print-architecture)" \
+    && case "${arch}" in \
+         amd64) node_arch=x64 ;; \
+         arm64) node_arch=arm64 ;; \
+         *) echo "未対応のアーキテクチャのためNode.jsを入れられない: ${arch}" >&2; exit 1 ;; \
+       esac \
+    && curl -fsSL -o /tmp/node.tar.xz \
+         "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${node_arch}.tar.xz" \
+    && tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 --no-same-owner \
+    && rm -f /tmp/node.tar.xz \
+    && node --version && npm --version
 
 # ファイアウォール。root所有の固定コピーだけを sudo 対象にする。
 # 作業ツリー側のスクリプトを直接 sudo させると、スクリプトを書き換えてから
