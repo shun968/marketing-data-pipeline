@@ -10,7 +10,13 @@ from dataclasses import dataclass
 from datetime import date
 from typing import TYPE_CHECKING
 
-from .embedding import DEFAULT_MODEL, Embedder, embed_query, ensure_model_matches
+from .embedding import (
+    DEFAULT_MODEL,
+    Embedder,
+    embed_query,
+    ensure_model_matches,
+    ensure_query_dimension,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - 型注釈のためだけに読む
     import duckdb
@@ -56,6 +62,7 @@ def search(
     ensure_model_matches(conn, model_name)
 
     query_vector = embed_query(query, model_name=model_name, embedder=embedder)
+    ensure_query_dimension(conn, query_vector)
 
     conditions = ["i.embedding IS NOT NULL"]
     params: list[object] = [query_vector]

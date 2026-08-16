@@ -406,11 +406,20 @@ def _run_keywords(args: argparse.Namespace) -> int:
 
 def _run_embed(args: argparse.Namespace) -> int:
     with connect(_db_path(args)) as conn:
+        # **順序が意味を持つ。破棄は最後にする。**
+        #   1. モデル名の解決を先にする。破棄すると embedding_model が消えて
+        #      コーパスから引けなくなり、既定のモデルへ黙ってすり替わる。
+        #   2. モデルの構築を破棄より前にする。重みの取得は数十秒かかり、
+        #      ネットワーク不通やモデル名の誤りで失敗する。破棄の後に失敗すると、
+        #      既存のベクトルが消えただけで終わる。
+        model_name = embed_mod.resolve_model(conn, args.model)
+        embedder = embed_mod.build_embedder(model_name) if args.reset_vectors else None
+
         if args.reset_vectors:
             cleared = embed_mod.reset_vectors(conn)
             print(f"埋め込みを破棄: {cleared}件")
-        model_name = embed_mod.resolve_model(conn, args.model)
-        result = embed_mod.embed(conn, limit=args.limit, model_name=model_name)
+
+        result = embed_mod.embed(conn, limit=args.limit, model_name=model_name, embedder=embedder)
 
     if result.embedded == 0:
         print("埋め込み待ちの投稿はありません")

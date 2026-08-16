@@ -11,6 +11,7 @@ from sns_collector.adapter.db.embedding import (
     reset_vectors,
     resolve_model,
 )
+from sns_collector.adapter.db.semantic_search import search
 from tests.conftest import BLUESKY_RECORD
 
 
@@ -293,3 +294,51 @@ def test_リセット後はどのモデルでも埋め込み直せる(conn_with_
 
     result = embed(conn, limit=10, model_name="model-b", embedder=_fake_embedder(dim=8))
     assert result.embedded == 1
+
+
+# --- レビュー指摘の回帰（PR #78） ---
+
+
+def test_出力の途中で次元が変わる埋め込みを書き込まない(conn_with_insight):
+    """先頭1件だけを見ると、2件目以降が無検査で入り混在DBをここで作る。"""
+    conn, _ = conn_with_insight
+    _insert_insight(conn, "bluesky:another", summary="別の要約")
+
+    def _uneven(texts):
+        return [[1.0] * 4, [1.0] * 8]
+
+    with pytest.raises(ValueError, match="揃っていない"):
+        embed(conn, limit=10, model_name="model-a", embedder=_uneven)
+
+    assert (
+        conn.execute("SELECT count(*) FROM insights WHERE embedding IS NOT NULL").fetchone()[0] == 0
+    )
+
+
+def test_クエリの次元がコーパスと違えば検索を止める(conn_with_insight):
+    """モデル名が同じままモデルの次元が変わる経路。
+
+    `list_cosine_similarity` の InvalidInputException は ValueError ではなく
+    duckdb.Error 系のため、cli のハンドラに掛からず素のトレースバックになる。
+    """
+    conn, _ = conn_with_insight
+    embed(conn, limit=10, model_name="same-name", embedder=_fake_embedder(dim=4))
+
+    with pytest.raises(ValueError, match="クエリの次元"):
+        search(conn, "検索語", model_name="same-name", embedder=_fake_embedder(dim=8))
+
+
+def test_直し方の案内は実際に直せる手段だけを出す(conn_with_insight):
+    """モデル名が定まらないDBでは --model を指定しても進めない。
+
+    `ensure_model_matches` がどのモデル名も拒否するため、案内すると
+    「言われたとおりにしても直らない」経路へ人を戻す。
+    """
+    conn, post_id = conn_with_insight
+    embed(conn, limit=10, model_name="model-a", embedder=_fake_embedder())
+    conn.execute("UPDATE insights SET embedding_model = NULL WHERE post_id = ?", [post_id])
+
+    with pytest.raises(ValueError) as e:
+        resolve_model(conn, None)
+    assert "--reset-vectors" in str(e.value)
+    assert "--model で明示" not in str(e.value)

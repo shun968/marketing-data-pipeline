@@ -32,9 +32,9 @@ class EmbedResult:
     dimension: int | None
 
 
-_RESET_HINT = (
-    "UPDATE insights SET embedding = NULL, embedding_model = NULL; の後に埋め込み直すこと。"
-)
+# 直し方は1箇所にだけ書く。READMEから手書きSQLを消した以上、
+# ここが古いSQLを案内し続けると、消したはずの経路へ人を戻す
+_RESET_HINT = "`sns-collector embed --reset-vectors --model <モデル名>` で埋め込み直すこと。"
 
 
 def _format_models(models: set[str | None]) -> str:
@@ -92,10 +92,12 @@ def resolve_model(conn: duckdb.DuckDBPyConnection, requested: str | None) -> str
             return only
 
     # 混在・モデル名不明は、既定を選ぶと誤ったモデルで埋め込みを増やす。
-    # ここでは決めず、下の照合と同じ文言で止める
+    #
+    # **ここで `--model` を案内しない。** この分岐へ来るDBは
+    # `ensure_model_matches` がどのモデル名も拒否するため、明示しても進めない。
+    # 直せる手段だけを出す
     raise ValueError(
-        f"既存の埋め込みのモデル（{_format_models(models)}）から1つに定まらない。"
-        f"--model で明示するか、{_RESET_HINT}"
+        f"既存の埋め込みのモデル（{_format_models(models)}）から1つに定まらない。{_RESET_HINT}"
     )
 
 
@@ -128,6 +130,35 @@ def ensure_model_matches(conn: duckdb.DuckDBPyConnection, model_name: str) -> No
             f"既存の埋め込みに次元の異なるベクトルが混ざっている（{found}）。"
             f"モデル名が同じでも検索が落ちる。{_RESET_HINT}"
         )
+
+
+def ensure_query_dimension(conn: duckdb.DuckDBPyConnection, vector: list[float]) -> None:
+    """クエリのベクトルがコーパスと同じ次元か。違えば ValueError。
+
+    **モデル名の照合ではここを守れない。** 同じ名前のままモデルの次元が変わると
+    （モデルカードの更新）、コーパス内は1024で揃ったまま、クエリだけ768になる。
+    `list_cosine_similarity` の `InvalidInputException` は `ValueError` ではなく
+    `duckdb.Error` 系のため `cli.main` のハンドラに掛からず、素のトレースバックになる。
+    """
+    existing = corpus_dimensions(conn)
+    if not existing or len(vector) in existing:
+        return
+
+    found = ", ".join(str(d) for d in sorted(existing))
+    raise ValueError(
+        f"クエリの次元（{len(vector)}）が既存の埋め込み（{found}）と違う。"
+        f"モデル名が同じでも別物になっている。{_RESET_HINT}"
+    )
+
+
+def build_embedder(model_name: str) -> Embedder:
+    """実モデルを構築する。**取り返しのつかない操作の前に呼ぶための口。**
+
+    モデルの重み取得は数十秒かかり、ネットワークやモデル名の誤りで失敗しうる。
+    `reset_vectors` の後に初めて構築すると、失敗したときには既存のベクトルが
+    消えた後になる。先に構築して、失敗するなら何も壊す前に失敗させる。
+    """
+    return _default_embedder(model_name)
 
 
 def _default_embedder(model_name: str) -> Embedder:
@@ -179,7 +210,15 @@ def embed(
             f"embedderの出力件数が入力と一致しない: 入力{len(post_ids)}件 出力{len(vectors)}件"
         )
 
-    dimension = len(vectors[0]) if vectors else None
+    # **先頭1件だけを見ない。** 出力の途中から次元が変わる embedder は、
+    # 2件目以降が無検査で書き込まれ、この検査が防ぐはずの混在DBをここで作る
+    produced = {len(v) for v in vectors}
+    if len(produced) > 1:
+        found = ", ".join(str(d) for d in sorted(produced))
+        raise ValueError(
+            f"生成したベクトルの次元が揃っていない（{found}）。混在させると検索が落ちるため書き込まない。"
+        )
+    dimension = produced.pop()
 
     # **混在を作る側でも止める。** 検査を読み取り時だけに置くと、壊れたDBを
     # 作ることは防げず「後から気づいて全部捨てる」しかなくなる。
