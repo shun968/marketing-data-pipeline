@@ -5,7 +5,12 @@ from pathlib import Path
 import pytest
 
 from sns_collector.adapter.db import connect, insert_records
-from sns_collector.adapter.db.embedding import embed
+from sns_collector.adapter.db.embedding import (
+    DEFAULT_MODEL,
+    embed,
+    reset_vectors,
+    resolve_model,
+)
 from tests.conftest import BLUESKY_RECORD
 
 
@@ -172,3 +177,119 @@ def test_埋め込み対象が無くてもモデル不一致は拒否する(conn
 
     with pytest.raises(ValueError, match="model-a"):
         embed(conn, limit=10, model_name="model-b", embedder=_fake_embedder(dim=8))
+
+
+# --- 次元の検査（モデル名は代理でしかない） ---
+
+
+def test_同じモデル名でも次元が混ざっていれば拒否する(conn_with_insight):
+    """守りたい不変条件はモデル名ではなく次元である。
+
+    同じ `model_name` で次元の違う embedder を使うと、名前の照合を通り抜けて
+    search が素の InvalidInputException で落ちる。実物の次元を見て止める。
+    """
+    conn, post_id = conn_with_insight
+    embed(conn, limit=10, model_name="same-name", embedder=_fake_embedder(dim=4))
+    _insert_insight(conn, "bluesky:another", summary="別の要約")
+    # 検査を迂回して混在を作る（過去に作られたDBの再現）
+    conn.execute(
+        "UPDATE insights SET embedding = [1.0, 2.0], embedding_model = 'same-name' "
+        "WHERE post_id = 'bluesky:another'"
+    )
+
+    with pytest.raises(ValueError) as e:
+        embed(conn, limit=10, model_name="same-name", embedder=_fake_embedder(dim=4))
+    assert "2" in str(e.value) and "4" in str(e.value)
+
+
+def test_既存と次元が違うベクトルは書き込まない(conn_with_insight):
+    """混在は読み取り時ではなく、作る側で止める。
+
+    読み取り時にだけ検査を置くと、壊れたDBを作ること自体は防げず、
+    気づいた時には全部捨てるしかなくなる。
+    """
+    conn, post_id = conn_with_insight
+    embed(conn, limit=10, model_name="same-name", embedder=_fake_embedder(dim=4))
+    _insert_insight(conn, "bluesky:another", summary="別の要約")
+
+    with pytest.raises(ValueError, match="書き込まない"):
+        embed(conn, limit=10, model_name="same-name", embedder=_fake_embedder(dim=8))
+
+    # 書き込まれていないこと（次元は4のまま1件）
+    dims = conn.execute(
+        "SELECT DISTINCT len(embedding) FROM insights WHERE embedding IS NOT NULL"
+    ).fetchall()
+    assert dims == [(4,)]
+
+
+# --- モデル名の解決（人に覚えさせない） ---
+
+
+def test_指定が無ければコーパスのモデルを採用する(conn_with_insight):
+    """READMEのモデル変更手順を踏んだ後、--model 無しでも動く。"""
+    conn, _ = conn_with_insight
+    embed(conn, limit=10, model_name="model-a", embedder=_fake_embedder())
+
+    assert resolve_model(conn, None) == "model-a"
+
+
+def test_埋め込みが無ければ既定のモデルになる(conn_with_insight):
+    conn, _ = conn_with_insight
+
+    assert resolve_model(conn, None) == DEFAULT_MODEL
+
+
+def test_指定があればそれを使う(conn_with_insight):
+    """「間違ったモデルでの検索を止める」目的は変えていない。"""
+    conn, _ = conn_with_insight
+    embed(conn, limit=10, model_name="model-a", embedder=_fake_embedder())
+
+    assert resolve_model(conn, "model-b") == "model-b"
+
+
+def test_混在していれば1つに定めない(conn_with_insight):
+    conn, post_id = conn_with_insight
+    embed(conn, limit=10, model_name="model-a", embedder=_fake_embedder())
+    _insert_insight(conn, "bluesky:another", summary="別の要約")
+    embed(conn, limit=10, model_name="model-a", embedder=_fake_embedder())
+    conn.execute("UPDATE insights SET embedding_model = 'model-b' WHERE post_id = ?", [post_id])
+
+    with pytest.raises(ValueError):
+        resolve_model(conn, None)
+
+
+# --- 手書きSQLに頼らない回復手段 ---
+
+
+def test_リセットはベクトルとモデル名だけを捨てる(conn_with_insight):
+    """要約まで捨てると再抽出が要る。捨てるのは再生成できるものだけ。"""
+    conn, post_id = conn_with_insight
+    embed(conn, limit=10, model_name="model-a", embedder=_fake_embedder())
+
+    cleared = reset_vectors(conn)
+
+    assert cleared == 1
+    row = conn.execute(
+        "SELECT embedding, embedding_model, summary FROM insights WHERE post_id = ?", [post_id]
+    ).fetchone()
+    assert row[0] is None
+    assert row[1] is None
+    assert row[2] == "テスト用の要約"
+
+
+def test_リセット後はどのモデルでも埋め込み直せる(conn_with_insight):
+    """モデル名が不明な行があると embed はどのモデル名でも拒否する。
+
+    対象は `embedding IS NULL` の行だけで名前を入れ直す経路が無いため、
+    リセットが唯一の出口になる。それを手書きSQLにさせない。
+    """
+    conn, post_id = conn_with_insight
+    embed(conn, limit=10, model_name="model-a", embedder=_fake_embedder())
+    conn.execute("UPDATE insights SET embedding_model = NULL WHERE post_id = ?", [post_id])
+    with pytest.raises(ValueError):
+        embed(conn, limit=10, model_name="model-b", embedder=_fake_embedder(dim=8))
+
+    reset_vectors(conn)
+
+    result = embed(conn, limit=10, model_name="model-b", embedder=_fake_embedder(dim=8))
+    assert result.embedded == 1

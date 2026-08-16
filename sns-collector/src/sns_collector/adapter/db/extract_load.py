@@ -159,43 +159,25 @@ def load(
             seen.add(insight.post_id)
             accepted.append(insight)
 
+    # **この書き込みは埋め込みを消す。部分適用を作らない。**
+    # `executemany` は1行ずつオートコミットするため、途中の行がDuckDB側で
+    # 弾かれる(validateを通ってもTINYINT範囲外など)と、先行分だけ要約が
+    # 入れ替わってベクトルが消え、posts は batched のまま、例外が抜けるので
+    # 破棄件数の警告も出ない。しかも `embedding IS NULL` になった行は
+    # やり直しても before - after が0になり、破棄の事実がどこにも残らない。
+    # embed() が同じ理由で採っている形に揃え、バッチ更新まで1つに包む
     embeddings_cleared = 0
-    if accepted:
-        # 捨てた件数は前後の差で数える。_UPSERT の CASE と同じ条件をここに
-        # 書き直すと、片方だけ直したときに数字が黙って嘘になる。
-        # この UPSERT はベクトルを消すことしかしないため、差は必ず捨てた分に等しい
-        post_ids = [i.post_id for i in accepted]
-        before = _embedded_count(conn, post_ids)
-
-        conn.executemany(
-            _UPSERT,
-            [
-                [
-                    i.post_id,
-                    i.insight_type,
-                    i.domain,
-                    i.summary,
-                    i.pain_level,
-                    i.monetizable,
-                    i.competitors,
-                    i.confidence,
-                    version,
-                    now.replace(tzinfo=None),
-                ]
-                for i in accepted
-            ],
+    conn.execute("BEGIN TRANSACTION")
+    try:
+        embeddings_cleared = _write_accepted(conn, accepted, version, now)
+        conn.execute(
+            "UPDATE extraction_batches SET loaded_at = ?, loaded_count = ? WHERE batch_id = ?",
+            [now.replace(tzinfo=None), len(accepted), batch_id],
         )
-        embeddings_cleared = before - _embedded_count(conn, post_ids)
-
-        conn.executemany(
-            "UPDATE posts SET extraction_status = 'done' WHERE id = ?",
-            [[i.post_id] for i in accepted],
-        )
-
-    conn.execute(
-        "UPDATE extraction_batches SET loaded_at = ?, loaded_count = ? WHERE batch_id = ?",
-        [now.replace(tzinfo=None), len(accepted), batch_id],
-    )
+        conn.execute("COMMIT")
+    except BaseException:
+        conn.execute("ROLLBACK")
+        raise
 
     errors_path = None
     if errors:
@@ -209,6 +191,50 @@ def load(
         errors_path=errors_path,
         embeddings_cleared=embeddings_cleared,
     )
+
+
+def _write_accepted(
+    conn: duckdb.DuckDBPyConnection,
+    accepted: list[Insight],
+    version: str,
+    now: datetime,
+) -> int:
+    """受理した洞察を書き、埋め込みを捨てた件数を返す。**呼び出し側が包む。**"""
+    if not accepted:
+        return 0
+
+    # 捨てた件数は前後の差で数える。_UPSERT の CASE と同じ条件をここに
+    # 書き直すと、片方だけ直したときに数字が黙って嘘になる。
+    # この UPSERT はベクトルを消すことしかしないため、差は必ず捨てた分に等しい
+    post_ids = [i.post_id for i in accepted]
+    before = _embedded_count(conn, post_ids)
+
+    conn.executemany(
+        _UPSERT,
+        [
+            [
+                i.post_id,
+                i.insight_type,
+                i.domain,
+                i.summary,
+                i.pain_level,
+                i.monetizable,
+                i.competitors,
+                i.confidence,
+                version,
+                now.replace(tzinfo=None),
+            ]
+            for i in accepted
+        ],
+    )
+    embeddings_cleared = before - _embedded_count(conn, post_ids)
+
+    conn.executemany(
+        "UPDATE posts SET extraction_status = 'done' WHERE id = ?",
+        [[i.post_id] for i in accepted],
+    )
+
+    return embeddings_cleared
 
 
 def status(conn: duckdb.DuckDBPyConnection) -> dict:

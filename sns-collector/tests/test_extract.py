@@ -793,3 +793,37 @@ def test_抽出指示にドメインの境界が埋め込まれる(tmp_path: Pat
     assert "選択肢: edge_ai | other" in text
     assert "- `edge_ai` — エッジ推論。組込み一般は embedded_dev" in text
     assert "- `other` — 該当なし" in text, "boundary が無いドメインも一覧に出す"
+
+
+def test_取り込みが途中で落ちたら埋め込みも要約も戻す(prepared, monkeypatch):
+    """このUPSERTは**データを消す文**である。部分適用を残さない。
+
+    `executemany` は1行ずつオートコミットするため、包まないと先行分だけ
+    要約が入れ替わってベクトルが消える。しかも `embedding IS NULL` になった行は
+    やり直しても before - after が0になり、破棄の事実がどこにも残らない
+    （運用者が embed を回さない限り、その投稿は無言で search から消える）。
+    """
+    conn, extract_dir, result = prepared
+    _write_result(extract_dir, result.batch_id, [_valid(summary="元の要約")])
+    load(conn, extract_dir, result.batch_id, allowed_domains=DOMAINS)
+    conn.execute("UPDATE insights SET embedding = [1.0, 2.0], embedding_model = 'model-a'")
+
+    # バッチ更新の直前で落として、UPSERT だけが適用された状態を作る
+    import sns_collector.adapter.db.extract_load as mod
+
+    original = mod._write_accepted
+
+    def _boom(*args, **kwargs):
+        original(*args, **kwargs)
+        raise RuntimeError("書き込みの途中で落ちた")
+
+    monkeypatch.setattr(mod, "_write_accepted", _boom)
+
+    _write_result(extract_dir, result.batch_id, [_valid(summary="新しい要約")])
+    with pytest.raises(RuntimeError):
+        load(conn, extract_dir, result.batch_id, allowed_domains=DOMAINS)
+
+    row = conn.execute("SELECT summary, embedding, embedding_model FROM insights").fetchone()
+    assert row[0] == "元の要約", "要約が部分的に入れ替わっている"
+    assert row[1] is not None, "ベクトルが消えたまま戻っていない"
+    assert row[2] == "model-a"
