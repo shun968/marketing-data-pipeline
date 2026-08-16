@@ -12,7 +12,6 @@ SNS上の投稿から市場の潜在的な顧客要望・製品優位性を継�
 sns-collector/data/        収集した生データ・DB     ← 絶対にコミットしない
 sns-collector/state/       ログ・ロック              ← 絶対にコミットしない
 sns-collector/reports/     生成レポート             ← 絶対にコミットしない
-sns-collector/.env         APIキー                  ← 絶対にコミットしない
 maritime-collector/data/   同上（別トピックのインスタンス。ADR-0008） ← 絶対にコミットしない
 maritime-collector/state/  同上                                     ← 絶対にコミットしない
 maritime-collector/reports/ 同上                                    ← 絶対にコミットしない
@@ -22,6 +21,8 @@ maritime-collector/reports/ 同上                                    ← 絶対
 すべて `.gitignore` 済みだが、**このリポジトリはPublicである**。`git add -A` や `git add .` を使う際は、これらが含まれていないことを必ず確認する。
 
 これは `scripts/check-no-private-data.sh` が pre-commit（lefthook）で機械的に検査する。**`--no-verify` で迂回しない。** 一度pushした内容は履歴を書き換えても取り消しきれない。
+
+**APIキーはこのリポジトリの中に置かない**（ADR-0012）。コミットしなくても、ワークスペース内に在るだけでセッションの子プロセスから読める。場所は `SNS_COLLECTOR_ENV_FILE` で指し、`scripts/check-secret-outside-workspace.sh` が置き場所を検査する。
 
 埋め込み生成はローカルモデルで行い、外部APIへ投稿本文を送信しない（ADR-0002）。唯一の例外は構造化抽出で、Claude Codeセッション経由で投稿本文がAnthropicへ送信される（ADR-0003）。この線引きを勝手に動かさない。
 

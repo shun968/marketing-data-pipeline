@@ -20,4 +20,6 @@ uv run --project ../sns-collector sns-collector db init --data-dir data --db dat
 uv run --project ../sns-collector sns-collector bluesky --keywords config/keywords.yaml --data-dir data --db data/analysis.duckdb
 ```
 
-cwdを `sns-collector/` へ移して実行しないこと。python-dotenvは実行時cwdから `.env` を探すため、cwdをsns-collector側へ移すとこのインスタンス専用の `.env`（YouTubeを使う場合）が見つからず、sns-collector本体の `.env` が誤って使われる。
+cwdを `sns-collector/` へ移して実行しないこと。`--data-dir` などを相対パスで渡したときに、解決先が本体側へずれる。
+
+鍵を要する収集元を足す場合、環境ファイルはこのディレクトリ配下に置かず `SNS_COLLECTOR_ENV_FILE` で外部を指す（ADR-0012）。

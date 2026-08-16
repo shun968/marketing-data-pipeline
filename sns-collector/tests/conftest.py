@@ -1,6 +1,45 @@
 from __future__ import annotations
 
+import os
+from collections.abc import Iterator
+
 import pytest
+
+from sns_collector.adapter.config_file import ENV_FILE_VAR
+
+# 設定読み取りが見る秘匿系の環境変数。下の fixture の対象
+SECRET_ENV_VARS = (
+    "YOUTUBE_API_KEY",
+    "GITHUB_TOKEN",
+    "REDDIT_CLIENT_ID",
+    "REDDIT_CLIENT_SECRET",
+    "REDDIT_USER_AGENT",
+)
+
+
+@pytest.fixture(autouse=True)
+def 環境変数を持ち込まない() -> Iterator[None]:
+    """実行環境の鍵と `SNS_COLLECTOR_ENV_FILE` を、全テストから隔離する。
+
+    **モジュール単位ではなくここに置く。** 鍵の置き場を外部化して以降、
+    開発者のシェルに `SNS_COLLECTOR_ENV_FILE` が入っているのが通常の状態に
+    なった（sns-collector/README.md）。設定を読むテストはどのファイルにもあり、
+    片方のモジュールだけで消しても、もう片方が環境依存で落ちる。
+
+    後片付けを monkeypatch に任せない理由: `load_dotenv` がテスト中に入れた
+    変数は monkeypatch の巻き戻し対象にならず、後続のテストへ漏れる。
+    """
+    saved = {name: os.environ.pop(name, None) for name in (ENV_FILE_VAR, *SECRET_ENV_VARS)}
+    try:
+        yield
+    finally:
+        # テスト中に入った値は残さない。消した値だけを戻す
+        for name in (ENV_FILE_VAR, *SECRET_ENV_VARS):
+            os.environ.pop(name, None)
+        for name, value in saved.items():
+            if value is not None:
+                os.environ[name] = value
+
 
 # 収集済みJSONL 1行の形。db/adapters.py が読む入力そのもの
 BLUESKY_RECORD = {
