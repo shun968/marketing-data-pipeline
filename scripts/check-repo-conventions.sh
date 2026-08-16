@@ -199,8 +199,13 @@ if in_index "${SETTINGS}"; then
   #   その一拍が黙って消える。
   #
   #   実際に、レビューがエージェント自身によるものだったPRのマージがここで
-  #   止まった(#76)。個人設定(~/.claude/settings.json)に置くのは許容する。
-  #   そちらはリポジトリに入らず、他の開発者へ無自覚に継承されない。
+  #   止まった(#76)。
+  #
+  #   **個人設定(~/.claude/settings.json)へ移すのも解決にならない。**
+  #   permissionsは全層を統合してから deny → ask → allow で判定するため
+  #   (docs/isolation.md §2)、どの層に書いてもプロンプトは同じように消える。
+  #   この検査が見られるのはプロジェクト設定だけなので、**検出できる範囲で
+  #   止めているに過ぎない**ことを承知した上で置いている。
   #
   #   **`gh pr merge` の文字列だけを見ては足りない。** permissionsのルールは
   #   前方一致なので、`Bash(gh:*)` や `Bash(gh pr:*)` も `gh pr merge` を許可する。
@@ -218,7 +223,7 @@ if in_index "${SETTINGS}"; then
   if ! jq -e '.permissions.allow // []
       | map(select(type != "string" or test("^Bash\\( *gh( +pr)?( *[*:)]| +merge| *$)")))
       | length == 0' > /dev/null 2>&1 <<< "${settings_content}"; then
-    report irreversible-allow "${SETTINGS} の allow が gh pr merge を許可している（個人設定へ移す）"
+    report irreversible-allow "${SETTINGS} の allow が gh pr merge を許可している（常時許可にせず都度承認にする）"
   fi
 
   # OS層の境界は devcontainer が担う(ADR-0007)。ホストの AppArmor は変更しない
