@@ -191,6 +191,41 @@ if in_index "${SETTINGS}"; then
     fi
   done
 
+  # 取り消せない操作をプロジェクト設定で常時許可にしない。
+  #
+  #   `gh pr merge` は取り消せない。CLAUDE.md はレビューの実行を運用で担保すると
+  #   定めており、承認プロンプトはその運用が抜けたときに残る最後の一拍になる。
+  #   プロジェクト設定で常時許可にすると、リポジトリを取得した全員に対して
+  #   その一拍が黙って消える。
+  #
+  #   実際に、レビューがエージェント自身によるものだったPRのマージがここで
+  #   止まった(#76)。
+  #
+  #   **個人設定(~/.claude/settings.json)へ移すのも解決にならない。**
+  #   permissionsは全層を統合してから deny → ask → allow で判定するため
+  #   (docs/isolation.md §2)、どの層に書いてもプロンプトは同じように消える。
+  #   この検査が見られるのはプロジェクト設定だけなので、**検出できる範囲で
+  #   止めているに過ぎない**ことを承知した上で置いている。
+  #
+  #   **`gh pr merge` の文字列だけを見ては足りない。** permissionsのルールは
+  #   前方一致なので、`Bash(gh:*)` や `Bash(gh pr:*)` も `gh pr merge` を許可する。
+  #   ここで止められた人が、より広いルールへ書き換えて迂回するのが現実的な失敗の形
+  #   であるため、`gh` / `gh pr` を丸ごと許可する形も対象にする。
+  #
+  #   一方で `gh pr create` / `gh pr view` のようなサブコマンド指定は通す。
+  #   「危険そうな操作」を広く弾くと誤検知が増え、ゲートごと無効化される
+  #   (scripts/check-shell-idioms.sh 冒頭と同じ方針)。
+  #
+  #   判定を反転させて fail-closed にしてある。`if jq -e ... ; then report` の形だと
+  #   jqの実行時エラー(不正なJSON など)が「違反なし」と同じ扱いになり、
+  #   他の検査が通る限りスクリプト全体が0で終わる。上のdeny/askの検査と向きを揃える。
+  #   文字列でない要素も違反として扱う。判定できないものを通すと同じ穴になる
+  if ! jq -e '.permissions.allow // []
+      | map(select(type != "string" or test("^Bash\\( *gh( +pr)?( *[*:)]| +merge| *$)")))
+      | length == 0' > /dev/null 2>&1 <<< "${settings_content}"; then
+    report irreversible-allow "${SETTINGS} の allow が gh pr merge を許可している（常時許可にせず都度承認にする）"
+  fi
+
   # OS層の境界は devcontainer が担う(ADR-0007)。ホストの AppArmor は変更しない
   # 方針のため、Bashサンドボックス(bwrap)はこの機械では使えない。境界の実体で
   # あるファイアウォールが default-deny を保っていることを確かめる
