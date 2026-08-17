@@ -18,7 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from .embedding import _RESET_HINT, _format_models, corpus_models
+from .embedding import _RESET_HINT, _format_models, corpus_dimensions, corpus_models
 
 if TYPE_CHECKING:  # pragma: no cover - 型注釈のためだけに読む
     import duckdb
@@ -166,13 +166,23 @@ def _ensure_single_model(conn: duckdb.DuckDBPyConnection) -> None:
     素のトレースバックになるため、走らせる前に止める（embed.py と同じ理由）。
     """
     models = corpus_models(conn)
-    if len(models) <= 1:
-        return
+    if len(models) > 1:
+        found = _format_models(models)
+        raise ValueError(
+            f"埋め込みのモデルが混在している（{found}）。次元が異なると類似度計算が落ちる。{_RESET_HINT}"
+        )
 
-    found = _format_models(models)
-    raise ValueError(
-        f"埋め込みのモデルが混在している（{found}）。次元が異なると類似度計算が落ちる。{_RESET_HINT}"
-    )
+    # **モデル名が揃っていても次元が揃っているとは限らない。**
+    # 名前だけを見ていると、同名で次元の変わったベクトルが並ぶDBを通してしまう。
+    # embed と search はそれを止めるのに graph だけ通ると、同じ壊れ方が
+    # ここにだけ残る（_SIMILAR_SQL の list_cosine_similarity で落ちる）
+    dimensions = corpus_dimensions(conn)
+    if len(dimensions) > 1:
+        found = ", ".join(str(d) for d in sorted(dimensions))
+        raise ValueError(
+            f"埋め込みに次元の異なるベクトルが混ざっている（{found}）。"
+            f"モデル名が同じでも類似度計算が落ちる。{_RESET_HINT}"
+        )
 
 
 def _ensure_similar_is_affordable(conn: duckdb.DuckDBPyConnection) -> None:

@@ -184,7 +184,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     em = sub.add_parser("embed", help="insightsのsummaryをベクトル化する")
     em.add_argument("--limit", type=int, default=500, help="1回の実行での対象件数")
-    em.add_argument("--model", default=embed_mod.DEFAULT_MODEL, help="埋め込みモデル名")
+    # 既定は None。コーパスのモデルをDBから引く(embedding.resolve_model)。
+    # DEFAULT_MODEL 固定にすると、モデルを変えた後は毎回 --model を打ち直すまで
+    # embed も search も失敗し続ける
+    em.add_argument(
+        "--model", default=None, help="埋め込みモデル名（既定: 既存の埋め込みに合わせる）"
+    )
+    em.add_argument(
+        "--reset-vectors",
+        action="store_true",
+        help="既存の埋め込みとモデル名を捨ててから埋め込み直す（要約は消さない）",
+    )
     em.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
     em.add_argument("--db", type=Path, default=None)
 
@@ -227,7 +237,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     se.add_argument("--since", type=_iso_date, default=None, help="この投稿日以降を対象にする")
     se.add_argument("--text", default=None, help="投稿本文の部分一致(全文検索)")
     se.add_argument("--limit", type=int, default=20, help="上位何件を返すか")
-    se.add_argument("--model", default=embed_mod.DEFAULT_MODEL, help="埋め込みモデル名")
+    se.add_argument(
+        "--model", default=None, help="埋め込みモデル名（既定: 既存の埋め込みに合わせる）"
+    )
     se.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
     se.add_argument("--db", type=Path, default=None)
 
@@ -394,7 +406,20 @@ def _run_keywords(args: argparse.Namespace) -> int:
 
 def _run_embed(args: argparse.Namespace) -> int:
     with connect(_db_path(args)) as conn:
-        result = embed_mod.embed(conn, limit=args.limit, model_name=args.model)
+        # **順序が意味を持つ。破棄は最後にする。**
+        #   1. モデル名の解決を先にする。破棄すると embedding_model が消えて
+        #      コーパスから引けなくなり、既定のモデルへ黙ってすり替わる。
+        #   2. モデルの構築を破棄より前にする。重みの取得は数十秒かかり、
+        #      ネットワーク不通やモデル名の誤りで失敗する。破棄の後に失敗すると、
+        #      既存のベクトルが消えただけで終わる。
+        model_name = embed_mod.resolve_model(conn, args.model)
+        embedder = embed_mod.build_embedder(model_name) if args.reset_vectors else None
+
+        if args.reset_vectors:
+            cleared = embed_mod.reset_vectors(conn)
+            print(f"埋め込みを破棄: {cleared}件")
+
+        result = embed_mod.embed(conn, limit=args.limit, model_name=model_name, embedder=embedder)
 
     if result.embedded == 0:
         print("埋め込み待ちの投稿はありません")
@@ -423,7 +448,7 @@ def _run_search(args: argparse.Namespace) -> int:
         hits = search_mod.search(
             conn,
             args.query,
-            model_name=args.model,
+            model_name=embed_mod.resolve_model(conn, args.model),
             insight_type=args.insight_type,
             domain=args.domain,
             pain_level=args.pain_level,

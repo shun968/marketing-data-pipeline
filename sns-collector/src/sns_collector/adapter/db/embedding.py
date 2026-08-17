@@ -32,9 +32,9 @@ class EmbedResult:
     dimension: int | None
 
 
-_RESET_HINT = (
-    "UPDATE insights SET embedding = NULL, embedding_model = NULL; の後に埋め込み直すこと。"
-)
+# 直し方は1箇所にだけ書く。READMEから手書きSQLを消した以上、
+# ここが古いSQLを案内し続けると、消したはずの経路へ人を戻す
+_RESET_HINT = "`sns-collector embed --reset-vectors --model <モデル名>` で埋め込み直すこと。"
 
 
 def _format_models(models: set[str | None]) -> str:
@@ -56,6 +56,51 @@ def corpus_models(conn: duckdb.DuckDBPyConnection) -> set[str | None]:
     return {r[0] for r in rows}
 
 
+def corpus_dimensions(conn: duckdb.DuckDBPyConnection) -> set[int]:
+    """既存の埋め込みのベクトル次元の集合。埋め込みが無ければ空。
+
+    **守りたい不変条件はモデル名ではなく次元である。** モデル名は代理でしかなく、
+    同じ名前のまま次元が変わる経路（モデルカードの更新、`embedder` を注入する
+    呼び出し）では名前の照合が素通りする。DBに入っている値から直接見る。
+    """
+    rows = conn.execute(
+        "SELECT DISTINCT len(embedding) FROM insights WHERE embedding IS NOT NULL"
+    ).fetchall()
+    return {r[0] for r in rows}
+
+
+def resolve_model(conn: duckdb.DuckDBPyConnection, requested: str | None) -> str:
+    """使うモデル名を決める。指定が無ければコーパスから引く。
+
+    **正しいモデル名を人に覚えさせない。** 既定を `DEFAULT_MODEL` 固定にすると、
+    モデルを変えた後は `--model` を毎回打ち直すまで `embed` も `search` も
+    失敗し続ける（READMEのモデル変更手順どおりに進めた人がそのまま詰まる）。
+    コーパスのモデルはDBから分かるので、指定が無いときはそれを採用する。
+
+    指定があれば照合は従来どおり行う。「間違ったモデルでの検索を止める」目的は
+    変えていない。
+    """
+    if requested is not None:
+        return requested
+
+    models = corpus_models(conn)
+    if not models:
+        return DEFAULT_MODEL
+    if len(models) == 1:
+        only = next(iter(models))
+        if only is not None:
+            return only
+
+    # 混在・モデル名不明は、既定を選ぶと誤ったモデルで埋め込みを増やす。
+    #
+    # **ここで `--model` を案内しない。** この分岐へ来るDBは
+    # `ensure_model_matches` がどのモデル名も拒否するため、明示しても進めない。
+    # 直せる手段だけを出す
+    raise ValueError(
+        f"既存の埋め込みのモデル（{_format_models(models)}）から1つに定まらない。{_RESET_HINT}"
+    )
+
+
 def ensure_model_matches(conn: duckdb.DuckDBPyConnection, model_name: str) -> None:
     """要求モデルが既存コーパスと一致するか。しなければ ValueError。
 
@@ -68,14 +113,52 @@ def ensure_model_matches(conn: duckdb.DuckDBPyConnection, model_name: str) -> No
     ことを示さないため、一致とはみなさない。
     """
     models = corpus_models(conn)
-    if not models or models == {model_name}:
+    if models and models != {model_name}:
+        found = _format_models(models)
+        raise ValueError(
+            f"既存の埋め込みのモデル（{found}）が {model_name} と一致しない。"
+            f"次元が異なると検索が落ちる。同じモデルを指定するか、{_RESET_HINT}"
+        )
+
+    # モデル名が揃っていても次元が揃っているとは限らない。
+    # 同じ名前で次元の違うベクトルが混ざったDBは、名前の照合を通り抜けて
+    # search で素の InvalidInputException になる。**名前ではなく実物を見る。**
+    dimensions = corpus_dimensions(conn)
+    if len(dimensions) > 1:
+        found = ", ".join(str(d) for d in sorted(dimensions))
+        raise ValueError(
+            f"既存の埋め込みに次元の異なるベクトルが混ざっている（{found}）。"
+            f"モデル名が同じでも検索が落ちる。{_RESET_HINT}"
+        )
+
+
+def ensure_query_dimension(conn: duckdb.DuckDBPyConnection, vector: list[float]) -> None:
+    """クエリのベクトルがコーパスと同じ次元か。違えば ValueError。
+
+    **モデル名の照合ではここを守れない。** 同じ名前のままモデルの次元が変わると
+    （モデルカードの更新）、コーパス内は1024で揃ったまま、クエリだけ768になる。
+    `list_cosine_similarity` の `InvalidInputException` は `ValueError` ではなく
+    `duckdb.Error` 系のため `cli.main` のハンドラに掛からず、素のトレースバックになる。
+    """
+    existing = corpus_dimensions(conn)
+    if not existing or len(vector) in existing:
         return
 
-    found = _format_models(models)
+    found = ", ".join(str(d) for d in sorted(existing))
     raise ValueError(
-        f"既存の埋め込みのモデル（{found}）が {model_name} と一致しない。"
-        f"次元が異なると検索が落ちる。同じモデルを指定するか、{_RESET_HINT}"
+        f"クエリの次元（{len(vector)}）が既存の埋め込み（{found}）と違う。"
+        f"モデル名が同じでも別物になっている。{_RESET_HINT}"
     )
+
+
+def build_embedder(model_name: str) -> Embedder:
+    """実モデルを構築する。**取り返しのつかない操作の前に呼ぶための口。**
+
+    モデルの重み取得は数十秒かかり、ネットワークやモデル名の誤りで失敗しうる。
+    `reset_vectors` の後に初めて構築すると、失敗したときには既存のベクトルが
+    消えた後になる。先に構築して、失敗するなら何も壊す前に失敗させる。
+    """
+    return _default_embedder(model_name)
 
 
 def _default_embedder(model_name: str) -> Embedder:
@@ -127,7 +210,27 @@ def embed(
             f"embedderの出力件数が入力と一致しない: 入力{len(post_ids)}件 出力{len(vectors)}件"
         )
 
-    dimension = len(vectors[0]) if vectors else None
+    # **先頭1件だけを見ない。** 出力の途中から次元が変わる embedder は、
+    # 2件目以降が無検査で書き込まれ、この検査が防ぐはずの混在DBをここで作る
+    produced = {len(v) for v in vectors}
+    if len(produced) > 1:
+        found = ", ".join(str(d) for d in sorted(produced))
+        raise ValueError(
+            f"生成したベクトルの次元が揃っていない（{found}）。混在させると検索が落ちるため書き込まない。"
+        )
+    dimension = produced.pop()
+
+    # **混在を作る側でも止める。** 検査を読み取り時だけに置くと、壊れたDBを
+    # 作ることは防げず「後から気づいて全部捨てる」しかなくなる。
+    # 既存と次元が違うベクトルは書く前に弾く（embedder注入や、同名モデルの
+    # 次元変更がここを通る）
+    existing = corpus_dimensions(conn)
+    if dimension is not None and existing and dimension not in existing:
+        found = ", ".join(str(d) for d in sorted(existing))
+        raise ValueError(
+            f"生成したベクトルの次元（{dimension}）が既存（{found}）と違う。"
+            f"混在させると検索が落ちるため書き込まない。{_RESET_HINT}"
+        )
 
     # 1件でも失敗したら全件を戻す。一部だけ書き込まれた状態は、次回実行時に
     # どこまで進んだか追えなくなる(embedding IS NULLで再選択されるので実害は
@@ -144,6 +247,34 @@ def embed(
         raise
 
     return EmbedResult(embedded=len(post_ids), model=model_name, dimension=dimension)
+
+
+def reset_vectors(conn: duckdb.DuckDBPyConnection) -> int:
+    """全ての埋め込みとモデル名を捨てる。捨てた件数を返す。
+
+    **手書きSQLの写経をやめるための口である。** モデル名が不明な行が1件でも
+    あると `embed` はどのモデル名でも拒否するため、そのDBは `embed` では
+    直せない（対象は `embedding IS NULL` の行だけで、名前を入れ直す経路が無い）。
+    出口はREADMEの `UPDATE insights SET embedding = NULL, ...` を手で打つことだけ
+    になるが、打ち間違いがそのままデータ破壊になる。
+
+    捨てるのはベクトルとモデル名だけで、`summary` を含む抽出結果には触れない。
+    再生成は `embed` を回せば済む（再抽出は不要）。
+    """
+    before = conn.execute("SELECT count(*) FROM insights WHERE embedding IS NOT NULL").fetchone()[0]
+
+    conn.execute("BEGIN TRANSACTION")
+    try:
+        conn.execute(
+            "UPDATE insights SET embedding = NULL, embedding_model = NULL "
+            "WHERE embedding IS NOT NULL OR embedding_model IS NOT NULL"
+        )
+        conn.execute("COMMIT")
+    except BaseException:
+        conn.execute("ROLLBACK")
+        raise
+
+    return before
 
 
 def embed_query(

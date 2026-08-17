@@ -373,13 +373,14 @@ uv run sns-collector search "セットアップ" --platform bluesky --since 2026
 リセットを忘れた場合は `embed` と `search` が実行前に拒否する（`embed.ensure_model_matches`）。**手順の記憶に頼らせない。** 混在させてしまうと `search` が例外で落ちるだけで、どの行が古いモデルなのかは表示されない。
 
 ```sh
-uv run python -c "
-import duckdb
-conn = duckdb.connect('data/analysis.duckdb')
-conn.execute('UPDATE insights SET embedding = NULL, embedding_model = NULL')
-"
-uv run sns-collector embed --model <新しいモデル名> --limit 100000
+uv run sns-collector embed --reset-vectors --model <新しいモデル名> --limit 100000
 ```
+
+`--reset-vectors` は既存のベクトルとモデル名だけを捨てる（`summary` を含む抽出結果には触れないので、再抽出は要らない）。
+
+**この後の `search` に `--model` は要らない。** 指定しなければ既存の埋め込みが使っているモデルをDBから引く（`embed.resolve_model`）。指定した場合の照合は従来どおりで、間違ったモデルでの検索は止まる。
+
+検査はモデル名だけでなく**ベクトルの次元も見る**。守りたいのは次元が揃っていることで、モデル名はその代理でしかない（同じ名前のまま次元が変わる経路がある）。次元の違うベクトルは、読み取り時に拒否するだけでなく**書き込む前に弾く**。
 
 ### 関係グラフ
 

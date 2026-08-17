@@ -5,8 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from sns_collector.adapter.db import connect, graph
+from sns_collector.adapter.db import connect, graph, insert_records
 from sns_collector.adapter.db.graph import rebuild
+from tests.conftest import BLUESKY_RECORD
 
 MODEL = "fake-model"
 
@@ -272,3 +273,32 @@ def test_エッジが無い状態でも落ちない(conn):
 
     assert result.total == 0
     assert set(result.counts) == {"mentions", "cooccurs", "belongs_to", "similar_to"}
+
+
+def test_モデル名が同じでも次元が混ざっていればグラフを作らない(tmp_path: Path):
+    """embed と search が止めるのに graph だけ通ると、同じ壊れ方がここに残る。
+
+    `_SIMILAR_SQL` の `list_cosine_similarity` が InvalidInputException で落ちる。
+    """
+    with connect(tmp_path / "analysis.duckdb") as conn:
+        insert_records(conn, "bluesky", [BLUESKY_RECORD])
+        post_id = conn.execute("SELECT id FROM posts").fetchone()[0]
+        conn.execute(
+            """
+            INSERT INTO insights (post_id, insight_type, domain, summary, pain_level,
+                                  monetizable, embedding, embedding_model)
+            VALUES (?, 'complaint', 'edge_ai', '要約', 1, false, [1.0, 2.0], 'same-name')
+            """,
+            [post_id],
+        )
+        conn.execute(
+            """
+            INSERT INTO insights (post_id, insight_type, domain, summary, pain_level,
+                                  monetizable, embedding, embedding_model)
+            VALUES ('bluesky:other', 'complaint', 'edge_ai', '別の要約', 1, false,
+                    [1.0, 2.0, 3.0], 'same-name')
+            """
+        )
+
+        with pytest.raises(ValueError, match="次元の異なる"):
+            rebuild(conn)
